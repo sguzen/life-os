@@ -1,8 +1,25 @@
-export default function FinancePage() {
+import { createClient } from "@/lib/supabase/server";
+import {
+  getDebts,
+  getMonthlyExpenses,
+  getPropPayouts,
+} from "@/lib/supabase/finance";
+import { FinanceView } from "@/components/finance/finance-view";
+
+export default async function FinancePage() {
+  const supabase = createClient();
+
+  const [debts, expenses, payouts] = await Promise.all([
+    getDebts(supabase),
+    getMonthlyExpenses(supabase),
+    getPropPayouts(supabase),
+  ]);
+
   return (
-    <div className="space-y-4">
-      <h1 className="text-2xl font-bold">Finance</h1>
-      <p className="text-muted-foreground">Manage your budget, expenses, and savings.</p>
-    </div>
+    <FinanceView
+      initialDebts={debts}
+      initialExpenses={expenses}
+      initialPayouts={payouts}
+    />
   );
 }
