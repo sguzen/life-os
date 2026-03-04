@@ -172,4 +172,66 @@ Daily trading journal — one entry per user per day.
 
 ---
 
-_Future tables (P3+): runs, transactions, books, projects_
+---
+
+### `debts`
+Tracks individual debts for payoff projection.
+
+| Column          | Type        | Notes                             |
+|-----------------|-------------|-----------------------------------|
+| id              | uuid (PK)   | `gen_random_uuid()`               |
+| user_id         | uuid        | FK → auth.users(id)              |
+| name            | text        | e.g. "Credit Card", "Car Loan"   |
+| total_amount    | numeric     | original debt amount              |
+| current_balance | numeric     | remaining balance                 |
+| interest_rate   | numeric     | APR %, default 0                  |
+| minimum_payment | numeric     | minimum monthly payment, default 0|
+| due_day         | int         | day of month due (1–31), optional |
+| notes           | text        | optional                          |
+| is_paid_off     | boolean     | default false                     |
+| created_at      | timestamptz |                                   |
+| updated_at      | timestamptz | auto-updated via trigger          |
+
+**RLS**: users manage only their own rows.
+
+---
+
+### `monthly_expenses`
+Recurring monthly expenses used in payoff projection.
+
+| Column      | Type             | Notes                              |
+|-------------|------------------|------------------------------------|
+| id          | uuid (PK)        | `gen_random_uuid()`                |
+| user_id     | uuid             | FK → auth.users(id)               |
+| name        | text             | e.g. "Rent", "Netflix"            |
+| amount      | numeric          | monthly cost                       |
+| category    | expense_category | ENUM (housing, food, utilities…)  |
+| due_day     | int              | day of month due (1–31), optional  |
+| is_recurring| boolean          | default true                       |
+| notes       | text             | optional                           |
+| created_at  | timestamptz      |                                    |
+| updated_at  | timestamptz      | auto-updated via trigger           |
+
+**RLS**: users manage only their own rows.
+
+---
+
+### `prop_payouts`
+Logs prop firm payout events; used to compute average monthly income for projection.
+
+| Column      | Type        | Notes                                              |
+|-------------|-------------|----------------------------------------------------|
+| id          | uuid (PK)   | `gen_random_uuid()`                                |
+| user_id     | uuid        | FK → auth.users(id)                               |
+| firm_name   | text        | e.g. "FundedNext", "Apex", "Take Profit Trader"  |
+| amount      | numeric     | payout amount                                      |
+| payout_date | date        | date received, default CURRENT_DATE                |
+| notes       | text        | optional                                           |
+| created_at  | timestamptz |                                                    |
+| updated_at  | timestamptz | auto-updated via trigger                           |
+
+**RLS**: users manage only their own rows.
+
+---
+
+_Future tables: runs, books, projects_

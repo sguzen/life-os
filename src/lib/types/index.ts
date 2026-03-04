@@ -161,6 +161,63 @@ export interface DailyPnl {
   trade_count: number;
 }
 
+// ---- Financial Dashboard (P3) ----
+
+export type ExpenseCategory =
+  | "housing"
+  | "transportation"
+  | "food"
+  | "utilities"
+  | "insurance"
+  | "subscriptions"
+  | "health"
+  | "entertainment"
+  | "other";
+
+export interface Debt {
+  id: string;
+  user_id: string;
+  name: string;
+  total_amount: number;
+  current_balance: number;
+  interest_rate: number;
+  minimum_payment: number;
+  due_day: number | null;
+  notes: string | null;
+  is_paid_off: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MonthlyExpense {
+  id: string;
+  user_id: string;
+  name: string;
+  amount: number;
+  category: ExpenseCategory;
+  due_day: number | null;
+  is_recurring: boolean;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PropPayout {
+  id: string;
+  user_id: string;
+  firm_name: string;
+  amount: number;
+  payout_date: string; // YYYY-MM-DD
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PayoffProjectionPoint {
+  month: string;    // e.g. "Mar 2026"
+  balance: number;  // remaining debt balance
+}
+
 export interface Note {
   id: string;
   title: string;
