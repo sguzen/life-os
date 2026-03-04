@@ -13,21 +13,37 @@ export interface Task {
   updatedAt: Date;
 }
 
+// ---- Habits (matches DB schema) ----
+
 export interface Habit {
   id: string;
-  title: string;
-  description?: string;
+  user_id: string;
+  name: string;
+  description: string | null;
   frequency: "daily" | "weekly";
-  targetCount: number;
+  target_count: number;
   color: string;
-  createdAt: Date;
+  icon: string | null;
+  is_archived: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface HabitLog {
   id: string;
-  habitId: string;
-  date: Date;
+  user_id: string;
+  habit_id: string;
+  logged_at: string; // ISO date string YYYY-MM-DD
   count: number;
+  created_at: string;
+}
+
+export interface HabitWithLogs extends Habit {
+  logs: HabitLog[];
+  /** Consecutive-day streak ending today */
+  streak: number;
+  /** Whether today already has a log entry */
+  logged_today: boolean;
 }
 
 export interface Note {

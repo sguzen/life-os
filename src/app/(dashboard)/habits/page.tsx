@@ -1,7 +1,10 @@
-export default function HabitsPage() {
-  return (
-    <div className="space-y-6">
-      <h1 className="text-3xl font-bold">Habits</h1>
-    </div>
-  );
+import { createClient } from "@/lib/supabase/server";
+import { getHabitsWithLogs } from "@/lib/supabase/habits";
+import { HabitsView } from "@/components/habits/habits-view";
+
+export default async function HabitsPage() {
+  const supabase = createClient();
+  const habits = await getHabitsWithLogs(supabase);
+
+  return <HabitsView initialHabits={habits} />;
 }
