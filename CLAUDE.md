@@ -16,6 +16,9 @@ P0 — Foundation (auth, app shell, DB schema, deployment)
 ## Database
 See /docs/schema.md for full table reference
 
+## Database migrations
+Always output SQL migrations for new tables as a separate code block so I can run them in Supabase SQL Editor. Include RLS policies with each migration.
+
 ## Don't do
 - Never hardcode user IDs
 - Never disable RLS
