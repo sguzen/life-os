@@ -1,13 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { CheckCircle2, Circle, Pause, XCircle } from "lucide-react";
+import { CheckCircle2, Circle, Pause, XCircle, Pencil, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Project, ProjectTask } from "@/lib/types";
 
 interface ProjectCardProps {
   project: Project;
   tasks?: ProjectTask[];
+  onEdit: (project: Project) => void;
+  onDelete: (id: string) => void;
 }
 
 const STATUS_CONFIG: Record<
@@ -36,15 +38,34 @@ const STATUS_CONFIG: Record<
   },
 };
 
-export function ProjectCard({ project, tasks = [] }: ProjectCardProps) {
+export function ProjectCard({ project, tasks = [], onEdit, onDelete }: ProjectCardProps) {
   const statusCfg = STATUS_CONFIG[project.status];
   const StatusIcon = statusCfg.icon;
   const done = tasks.filter((t) => t.status === "done").length;
   const total = tasks.length;
 
   return (
-    <Link href={`/projects/${project.id}`} className="group">
-      <div className="rounded-lg border bg-card p-4 transition-colors hover:bg-accent/40">
+    <div className="group relative rounded-lg border bg-card transition-colors hover:bg-accent/40">
+      {/* Action buttons — top-right, revealed on hover */}
+      <div className="absolute right-2 top-2 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+        <button
+          onClick={() => onEdit(project)}
+          className="rounded p-1 text-muted-foreground hover:bg-background hover:text-foreground"
+          title="Edit"
+        >
+          <Pencil className="h-3.5 w-3.5" />
+        </button>
+        <button
+          onClick={() => onDelete(project.id)}
+          className="rounded p-1 text-muted-foreground hover:bg-background hover:text-destructive"
+          title="Delete"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      </div>
+
+      {/* Clickable area navigates to detail */}
+      <Link href={`/projects/${project.id}`} className="block p-4">
         <div className="flex items-start gap-3">
           {/* Color dot */}
           <div
@@ -53,9 +74,7 @@ export function ProjectCard({ project, tasks = [] }: ProjectCardProps) {
           />
 
           <div className="flex-1 min-w-0">
-            <p className="truncate font-medium group-hover:text-accent-foreground">
-              {project.name}
-            </p>
+            <p className="truncate pr-12 font-medium">{project.name}</p>
             {project.description && (
               <p className="mt-0.5 truncate text-sm text-muted-foreground">
                 {project.description}
@@ -91,7 +110,7 @@ export function ProjectCard({ project, tasks = [] }: ProjectCardProps) {
             )}
           </div>
         </div>
-      </div>
-    </Link>
+      </Link>
+    </div>
   );
 }

@@ -2,12 +2,14 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { Star, BookOpen, CheckCircle2, XCircle, Clock } from "lucide-react";
+import { Star, BookOpen, CheckCircle2, XCircle, Clock, Pencil, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Book } from "@/lib/types";
 
 interface BookCardProps {
   book: Book;
+  onEdit: (book: Book) => void;
+  onDelete: (id: string) => void;
 }
 
 const STATUS_CONFIG: Record<
@@ -36,13 +38,32 @@ const STATUS_CONFIG: Record<
   },
 };
 
-export function BookCard({ book }: BookCardProps) {
+export function BookCard({ book, onEdit, onDelete }: BookCardProps) {
   const statusCfg = STATUS_CONFIG[book.status];
   const StatusIcon = statusCfg.icon;
 
   return (
-    <Link href={`/books/${book.id}`} className="group">
-      <div className="flex gap-3 rounded-lg border bg-card p-4 transition-colors hover:bg-accent/40">
+    <div className="group relative rounded-lg border bg-card transition-colors hover:bg-accent/40">
+      {/* Action buttons — top-right, revealed on hover */}
+      <div className="absolute right-2 top-2 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+        <button
+          onClick={() => onEdit(book)}
+          className="rounded p-1 text-muted-foreground hover:bg-background hover:text-foreground"
+          title="Edit"
+        >
+          <Pencil className="h-3.5 w-3.5" />
+        </button>
+        <button
+          onClick={() => onDelete(book.id)}
+          className="rounded p-1 text-muted-foreground hover:bg-background hover:text-destructive"
+          title="Delete"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      </div>
+
+      {/* Clickable area navigates to detail */}
+      <Link href={`/books/${book.id}`} className="flex gap-3 p-4">
         {/* Cover image */}
         <div className="relative h-24 w-16 flex-shrink-0 overflow-hidden rounded">
           {book.cover_url ? (
@@ -63,9 +84,7 @@ export function BookCard({ book }: BookCardProps) {
 
         {/* Info */}
         <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <p className="truncate font-medium leading-tight group-hover:text-accent-foreground">
-            {book.title}
-          </p>
+          <p className="truncate pr-12 font-medium leading-tight">{book.title}</p>
           {book.author && (
             <p className="truncate text-sm text-muted-foreground">{book.author}</p>
           )}
@@ -90,7 +109,7 @@ export function BookCard({ book }: BookCardProps) {
             )}
           </div>
         </div>
-      </div>
-    </Link>
+      </Link>
+    </div>
   );
 }
