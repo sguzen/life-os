@@ -231,19 +231,21 @@ export async function importTrades(inputs: TradeImportInput[]): Promise<ImportRe
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Not authenticated");
 
-  // Fetch existing trades to check duplicates by entry_time + instrument + entry_price
+  // Fetch existing trades to check duplicates by date + instrument + entry_price + direction
   const { data: existing, error: fetchError } = await supabase
     .from("trades")
-    .select("entry_time, instrument, entry_price")
+    .select("entry_time, instrument, entry_price, direction")
     .eq("user_id", user.id);
   if (fetchError) throw fetchError;
 
   const existingKeys = new Set(
-    (existing ?? []).map((t) => `${t.entry_time}|${t.instrument}|${t.entry_price}`)
+    (existing ?? []).map(
+      (t) => `${t.entry_time.substring(0, 10)}|${t.instrument}|${t.entry_price}|${t.direction}`
+    )
   );
 
   const toInsert = inputs.filter((t) => {
-    const key = `${t.entry_time}|${t.instrument}|${t.entry_price}`;
+    const key = `${t.entry_time.substring(0, 10)}|${t.instrument}|${t.entry_price}|${t.direction}`;
     return !existingKeys.has(key);
   });
 
