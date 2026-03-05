@@ -1,4 +1,10 @@
+import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
+
+export const metadata: Metadata = {
+  title: "Finance",
+  description: "Track debts, expenses, and prop firm payouts",
+};
 import {
   getDebts,
   getMonthlyExpenses,

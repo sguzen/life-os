@@ -1,0 +1,49 @@
+{
+  "name": "Life OS",
+  "short_name": "Life OS",
+  "description": "Personal operating system — habits, trading, running, finance, books, projects",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#0d0d14",
+  "theme_color": "#0d0d14",
+  "orientation": "portrait-primary",
+  "categories": ["productivity", "health", "finance"],
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "screenshots": [],
+  "shortcuts": [
+    {
+      "name": "Habits",
+      "short_name": "Habits",
+      "description": "Check in your daily habits",
+      "url": "/habits",
+      "icons": [{ "src": "/icons/icon.svg", "sizes": "any" }]
+    },
+    {
+      "name": "Trading Journal",
+      "short_name": "Trading",
+      "description": "Log a trade",
+      "url": "/trading",
+      "icons": [{ "src": "/icons/icon.svg", "sizes": "any" }]
+    },
+    {
+      "name": "Running",
+      "short_name": "Running",
+      "description": "View running activities",
+      "url": "/running",
+      "icons": [{ "src": "/icons/icon.svg", "sizes": "any" }]
+    }
+  ]
+}

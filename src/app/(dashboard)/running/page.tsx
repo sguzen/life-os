@@ -1,5 +1,13 @@
 // P4-07: Running dashboard — overview page
 // P5-03: Running Coach AI widget added
+// P7-05: metadata added
+
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Running",
+  description: "Garmin activity log and race performance tracker",
+};
 
 import { Suspense } from 'react'
 import { Upload } from 'lucide-react'
@@ -11,6 +19,7 @@ import { FitUpload } from '@/components/running/fit-upload'
 import { LogRestingHrForm } from '@/components/running/log-resting-hr-form'
 import { formatDistance, formatDuration, formatPace } from '@/lib/running/format'
 import { RunningCoach } from '@/components/ai/running-coach'
+import { ExportButton } from '@/components/export/export-button'
 
 // ── Summary stats (last 7 days) ───────────────────────────────
 
@@ -37,9 +46,12 @@ export default async function RunningPage() {
   return (
     <div className="space-y-8">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-white">Running</h1>
-        <p className="text-sm text-white/40 mt-1">Garmin activity log &amp; race performance</p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Running</h1>
+          <p className="text-sm text-white/40 mt-1">Garmin activity log &amp; race performance</p>
+        </div>
+        <ExportButton href="/api/export/runs" label="Export CSV" />
       </div>
 
       {/* This week stats */}
