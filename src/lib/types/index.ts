@@ -218,6 +218,58 @@ export interface PayoffProjectionPoint {
   balance: number;  // remaining debt balance
 }
 
+// ---- Bookshelf (P6) ----
+
+export type BookStatus = "want-to-read" | "reading" | "done" | "abandoned";
+
+export interface Book {
+  id: string;
+  user_id: string;
+  title: string;
+  author: string | null;
+  isbn: string | null;
+  status: BookStatus;
+  rating: number | null;  // 1-5
+  notes: string | null;
+  started_at: string | null;   // YYYY-MM-DD
+  finished_at: string | null;  // YYYY-MM-DD
+  cover_url: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// ---- Projects (P6) ----
+
+export type ProjectStatus = "active" | "paused" | "done" | "abandoned";
+export type TaskStatus = "todo" | "in_progress" | "done";
+
+export interface Project {
+  id: string;
+  user_id: string;
+  name: string;
+  description: string | null;
+  status: ProjectStatus;
+  color: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectTask {
+  id: string;
+  user_id: string;
+  project_id: string;
+  title: string;
+  status: TaskStatus;
+  notes: string | null;
+  position: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectWithTasks extends Project {
+  tasks: ProjectTask[];
+}
+
 export interface Note {
   id: string;
   title: string;

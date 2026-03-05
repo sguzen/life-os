@@ -341,4 +341,67 @@ Upcoming and completed races with pace targets.
 
 ---
 
-_Future tables: books, projects_
+---
+
+## P6 — Bookshelf + Projects Tables
+
+### `books`
+Personal reading list with Open Library cover images.
+
+| Column      | Type        | Notes                                                       |
+|-------------|-------------|-------------------------------------------------------------|
+| id          | uuid (PK)   | `gen_random_uuid()`                                         |
+| user_id     | uuid        | FK → auth.users(id)                                        |
+| title       | text        | required                                                    |
+| author      | text        | optional                                                    |
+| isbn        | text        | optional; used to fetch cover from Open Library             |
+| status      | text        | `'want-to-read'` \| `'reading'` \| `'done'` \| `'abandoned'` |
+| rating      | int         | 1–5, optional                                               |
+| notes       | text        | optional personal notes / highlights                        |
+| started_at  | date        | optional                                                    |
+| finished_at | date        | optional                                                    |
+| cover_url   | text        | optional; auto-set from Open Library if ISBN provided       |
+| created_at  | timestamptz |                                                             |
+| updated_at  | timestamptz | auto-updated via trigger                                    |
+
+**Cover images**: `https://covers.openlibrary.org/b/isbn/{isbn}-M.jpg`
+**RLS**: users manage only their own rows.
+**Index**: `(user_id, status)`
+
+---
+
+### `projects`
+Personal project tracker — lightweight kanban.
+
+| Column      | Type        | Notes                                                 |
+|-------------|-------------|-------------------------------------------------------|
+| id          | uuid (PK)   | `gen_random_uuid()`                                   |
+| user_id     | uuid        | FK → auth.users(id)                                  |
+| name        | text        | required                                              |
+| description | text        | optional                                              |
+| status      | text        | `'active'` \| `'paused'` \| `'done'` \| `'abandoned'` |
+| color       | text        | hex color, default `'#6366f1'`                        |
+| created_at  | timestamptz |                                                       |
+| updated_at  | timestamptz | auto-updated via trigger                              |
+
+**RLS**: users manage only their own rows.
+
+---
+
+### `project_tasks`
+Tasks within a project; three-column kanban (todo → in_progress → done).
+
+| Column     | Type        | Notes                                               |
+|------------|-------------|-----------------------------------------------------|
+| id         | uuid (PK)   | `gen_random_uuid()`                                 |
+| user_id    | uuid        | FK → auth.users(id)                                |
+| project_id | uuid        | FK → projects(id) ON DELETE CASCADE                |
+| title      | text        | required                                            |
+| status     | text        | `'todo'` \| `'in_progress'` \| `'done'`            |
+| notes      | text        | optional                                            |
+| position   | int         | ordering within project, default 0                  |
+| created_at | timestamptz |                                                     |
+| updated_at | timestamptz | auto-updated via trigger                            |
+
+**RLS**: users manage only their own rows.
+**Index**: `(project_id, position)`
