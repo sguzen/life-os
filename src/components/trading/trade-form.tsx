@@ -1,8 +1,8 @@
 "use client";
 
 import * as Dialog from "@radix-ui/react-dialog";
-import { useState } from "react";
-import { X } from "lucide-react";
+import { useState, useRef, useCallback } from "react";
+import { X, Upload, Loader2, ImageIcon, CheckCircle2, AlertTriangle } from "lucide-react";
 import {
   tradeSchema,
   type TradeFormValues,
@@ -33,9 +33,23 @@ const SETUP_TAG_SUGGESTIONS = [
   "Breaker", "Mitigation", "Liquidity", "Imbalance", "SNR", "VWAP",
 ];
 
+// --- AI extraction types ---
+type AiField<T> = { value: T | null; confidence: number };
+
+interface AiExtractionResult {
+  instrument: AiField<TradeFormValues["instrument"]>;
+  direction: AiField<TradeFormValues["direction"]>;
+  entry_price: AiField<number>;
+  exit_price: AiField<number>;
+  session: AiField<TradeFormValues["session"]>;
+}
+
+// Map of field key → confidence score for AI-filled fields
+type AiConfidenceMap = Partial<Record<string, number>>;
+
+// --- Helpers ---
 function toLocalDateTimeInput(iso: string | null | undefined): string {
   if (!iso) return "";
-  // iso is e.g. "2024-01-15T14:30:00Z" → convert to local YYYY-MM-DDTHH:mm
   const d = new Date(iso);
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
@@ -45,7 +59,6 @@ function localInputToISO(val: string): string | null {
   if (!val) return null;
   return new Date(val).toISOString();
 }
-
 
 function emptyForm(): TradeFormValues {
   return {
@@ -103,6 +116,33 @@ function fromTrade(t: Trade): TradeFormValues {
   };
 }
 
+// Confidence badge shown next to field labels for AI-extracted values
+function ConfBadge({ confidence }: { confidence?: number }) {
+  if (confidence === undefined) return null;
+  if (confidence >= 0.8) {
+    return (
+      <span className="ml-1.5 inline-flex items-center gap-0.5 rounded-full bg-emerald-100 px-1.5 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+        AI {Math.round(confidence * 100)}%
+      </span>
+    );
+  }
+  if (confidence >= 0.5) {
+    return (
+      <span className="ml-1.5 inline-flex items-center gap-0.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+        <AlertTriangle className="h-2.5 w-2.5" />
+        AI ~{Math.round(confidence * 100)}%
+      </span>
+    );
+  }
+  return (
+    <span className="ml-1.5 inline-flex items-center gap-0.5 rounded-full bg-red-100 px-1.5 py-0.5 text-xs font-medium text-red-700 dark:bg-red-900/30 dark:text-red-400">
+      <AlertTriangle className="h-2.5 w-2.5" />
+      AI ?{Math.round(confidence * 100)}%
+    </span>
+  );
+}
+
+// ── Main component ──────────────────────────────────────────────────────────
 export function TradeForm({ open, onClose, onSaved, initial, propAccounts, strategies }: Props) {
   const [form, setForm] = useState<TradeFormValues>(initial ? fromTrade(initial) : emptyForm());
   const [errors, setErrors] = useState<FormErrors>({});
@@ -111,6 +151,15 @@ export function TradeForm({ open, onClose, onSaved, initial, propAccounts, strat
   const [tagInput, setTagInput] = useState("");
   const [activeTab, setActiveTab] = useState<"execution" | "context" | "review">("execution");
 
+  // Screenshot / AI state
+  const [screenshotPreview, setScreenshotPreview] = useState<string | null>(null);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [aiResult, setAiResult] = useState<AiExtractionResult | null>(null);
+  const [aiConfidence, setAiConfidence] = useState<AiConfidenceMap>({});
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   function handleOpen(val: boolean) {
     if (val) {
       setForm(initial ? fromTrade(initial) : emptyForm());
@@ -118,10 +167,97 @@ export function TradeForm({ open, onClose, onSaved, initial, propAccounts, strat
       setServerError(null);
       setTagInput("");
       setActiveTab("execution");
+      setScreenshotPreview(null);
+      setAnalyzing(false);
+      setAnalysisError(null);
+      setAiResult(null);
+      setAiConfidence({});
     }
     if (!val) onClose();
   }
 
+  // ── Screenshot handling ─────────────────────────────────────────────────
+  const analyzeScreenshot = useCallback(async (file: File) => {
+    // Show preview immediately
+    const reader = new FileReader();
+    reader.onload = (e) => setScreenshotPreview(e.target?.result as string);
+    reader.readAsDataURL(file);
+
+    setAnalyzing(true);
+    setAnalysisError(null);
+    setAiResult(null);
+    setAiConfidence({});
+
+    try {
+      const fd = new FormData();
+      fd.append("screenshot", file);
+      const res = await fetch("/api/ai/screenshot-analysis", { method: "POST", body: fd });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as { error?: string }).error ?? "Analysis failed");
+      }
+      const data: AiExtractionResult = await res.json();
+      setAiResult(data);
+    } catch (err) {
+      setAnalysisError(err instanceof Error ? err.message : "Analysis failed");
+    } finally {
+      setAnalyzing(false);
+    }
+  }, []);
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) analyzeScreenshot(file);
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file && file.type.startsWith("image/")) analyzeScreenshot(file);
+  }
+
+  function applyAiExtraction() {
+    if (!aiResult) return;
+    const updates: Partial<TradeFormValues> = {};
+    const conf: AiConfidenceMap = {};
+
+    if (aiResult.instrument.value !== null) {
+      updates.instrument = aiResult.instrument.value;
+      conf.instrument = aiResult.instrument.confidence;
+    }
+    if (aiResult.direction.value !== null) {
+      updates.direction = aiResult.direction.value;
+      conf.direction = aiResult.direction.confidence;
+    }
+    if (aiResult.entry_price.value !== null) {
+      updates.entry_price = aiResult.entry_price.value;
+      conf.entry_price = aiResult.entry_price.confidence;
+    }
+    if (aiResult.exit_price.value !== null) {
+      updates.exit_price = aiResult.exit_price.value;
+      conf.exit_price = aiResult.exit_price.confidence;
+    }
+    if (aiResult.session.value !== null) {
+      updates.session = aiResult.session.value;
+      conf.session = aiResult.session.confidence;
+    }
+
+    setForm((f) => ({ ...f, ...updates }));
+    setAiConfidence(conf);
+    setAiResult(null); // dismiss the result card once applied
+    setActiveTab("execution");
+  }
+
+  function dismissAi() {
+    setAiResult(null);
+    setScreenshotPreview(null);
+    setAnalysisError(null);
+    setAiConfidence({});
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  // ── Form helpers ─────────────────────────────────────────────────────────
   function toggleSetupTag(tag: string) {
     const cur = form.setup_tags ?? [];
     setForm({
@@ -154,7 +290,6 @@ export function TradeForm({ open, onClose, onSaved, initial, propAccounts, strat
         fe[key] = issue.message;
       }
       setErrors(fe);
-      // Switch to tab containing the first error
       const executionFields = ["instrument", "direction", "entry_price", "exit_price", "contracts", "entry_time", "exit_time", "gross_pnl", "fees", "outcome"];
       const hasExecError = Object.keys(fe).some((k) => executionFields.includes(k));
       if (hasExecError) setActiveTab("execution");
@@ -163,11 +298,10 @@ export function TradeForm({ open, onClose, onSaved, initial, propAccounts, strat
 
     setSaving(true);
     try {
-      // Zod optional() returns undefined; DB expects null — normalise here
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const payload: any = Object.fromEntries(
         Object.entries(result.data).map(([k, v]) => [k, v === undefined ? null : v])
-      )
+      );
       const saved = initial
         ? await updateTrade(initial.id, payload)
         : await createTrade(payload);
@@ -180,10 +314,18 @@ export function TradeForm({ open, onClose, onSaved, initial, propAccounts, strat
     }
   }
 
-  const inputCls = (err?: string) =>
+  // Input class — adds a coloured ring when the field was AI-filled
+  const inputCls = (field?: string, err?: string) =>
     cn(
       "w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring",
-      err && "border-destructive"
+      err && "border-destructive",
+      field && aiConfidence[field] !== undefined && (
+        aiConfidence[field]! >= 0.8
+          ? "ring-1 ring-emerald-400"
+          : aiConfidence[field]! >= 0.5
+          ? "ring-1 ring-amber-400"
+          : "ring-1 ring-red-400"
+      )
     );
 
   const tabs = [
@@ -192,11 +334,30 @@ export function TradeForm({ open, onClose, onSaved, initial, propAccounts, strat
     { id: "review" as const, label: "Review" },
   ];
 
+  // Summarise what Gemini found for the result card
+  function aiSummaryItems() {
+    if (!aiResult) return [];
+    const items: Array<{ label: string; display: string; confidence: number }> = [];
+    if (aiResult.instrument.value)
+      items.push({ label: "Instrument", display: INSTRUMENT_LABELS[aiResult.instrument.value] ?? aiResult.instrument.value, confidence: aiResult.instrument.confidence });
+    if (aiResult.direction.value)
+      items.push({ label: "Direction", display: aiResult.direction.value === "long" ? "▲ Long" : "▼ Short", confidence: aiResult.direction.confidence });
+    if (aiResult.entry_price.value !== null)
+      items.push({ label: "Entry", display: aiResult.entry_price.value.toString(), confidence: aiResult.entry_price.confidence });
+    if (aiResult.exit_price.value !== null)
+      items.push({ label: "Exit", display: aiResult.exit_price.value.toString(), confidence: aiResult.exit_price.confidence });
+    if (aiResult.session.value)
+      items.push({ label: "Session", display: SESSION_LABELS[aiResult.session.value] ?? aiResult.session.value, confidence: aiResult.session.confidence });
+    return items;
+  }
+
   return (
     <Dialog.Root open={open} onOpenChange={handleOpen}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm" />
         <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-full max-w-2xl max-h-[90vh] overflow-y-auto -translate-x-1/2 -translate-y-1/2 rounded-xl bg-card shadow-xl">
+
+          {/* ── Dialog Header ── */}
           <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b">
             <Dialog.Title className="text-lg font-semibold">
               {initial ? "Edit Trade" : "Log New Trade"}
@@ -206,7 +367,145 @@ export function TradeForm({ open, onClose, onSaved, initial, propAccounts, strat
             </Dialog.Close>
           </div>
 
-          {/* Tabs */}
+          {/* ── Screenshot AI Scanner ── */}
+          <div className="px-6 py-3 border-b bg-muted/20">
+            {/* Drop zone — shown when no screenshot yet */}
+            {!screenshotPreview && !analyzing && (
+              <label
+                onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={handleDrop}
+                className={cn(
+                  "flex cursor-pointer items-center gap-3 rounded-lg border-2 border-dashed px-4 py-3 transition-colors",
+                  dragOver
+                    ? "border-primary bg-primary/5"
+                    : "border-border hover:border-primary/40 hover:bg-muted/40"
+                )}
+              >
+                <Upload className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <div className="min-w-0">
+                  <p className="text-sm text-muted-foreground">
+                    <span className="font-medium text-foreground">Drop a chart screenshot</span>{" "}
+                    or click to browse — Gemini Vision will auto-fill the form
+                  </p>
+                </div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="sr-only"
+                  onChange={handleFileChange}
+                />
+              </label>
+            )}
+
+            {/* Analyzing spinner */}
+            {analyzing && (
+              <div className="flex items-center gap-3 py-2">
+                {screenshotPreview && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={screenshotPreview} alt="Chart preview" className="h-12 w-20 rounded object-cover border" />
+                )}
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                  Analyzing chart with Gemini Vision…
+                </div>
+              </div>
+            )}
+
+            {/* Analysis error */}
+            {analysisError && !analyzing && (
+              <div className="flex items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-2.5">
+                <p className="text-sm text-destructive">{analysisError}</p>
+                <button type="button" onClick={dismissAi} className="text-xs text-muted-foreground hover:text-foreground">
+                  Dismiss
+                </button>
+              </div>
+            )}
+
+            {/* AI Extraction Result card */}
+            {aiResult && !analyzing && (
+              <div className="flex gap-3">
+                {screenshotPreview && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={screenshotPreview} alt="Chart preview" className="h-16 w-24 shrink-0 rounded object-cover border" />
+                )}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5 mb-1.5">
+                    <ImageIcon className="h-3.5 w-3.5 text-primary" />
+                    <span className="text-xs font-semibold text-primary uppercase tracking-wide">Gemini Vision extracted</span>
+                  </div>
+                  {aiSummaryItems().length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No trade details could be extracted from this image.</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-2 mb-2">
+                      {aiSummaryItems().map(({ label, display, confidence }) => (
+                        <span key={label} className="inline-flex items-center gap-1 rounded-md border bg-background px-2 py-0.5 text-xs">
+                          <span className="text-muted-foreground">{label}:</span>
+                          <span className="font-medium">{display}</span>
+                          {confidence >= 0.8 ? (
+                            <CheckCircle2 className="h-3 w-3 text-emerald-500" />
+                          ) : confidence >= 0.5 ? (
+                            <AlertTriangle className="h-3 w-3 text-amber-500" />
+                          ) : (
+                            <AlertTriangle className="h-3 w-3 text-red-500" />
+                          )}
+                          <span className={cn(
+                            "text-[10px]",
+                            confidence >= 0.8 ? "text-emerald-600" : confidence >= 0.5 ? "text-amber-600" : "text-red-600"
+                          )}>
+                            {Math.round(confidence * 100)}%
+                          </span>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2">
+                    {aiSummaryItems().length > 0 && (
+                      <button
+                        type="button"
+                        onClick={applyAiExtraction}
+                        className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+                      >
+                        Apply to form
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={dismissAi}
+                      className="rounded-md px-3 py-1 text-xs font-medium text-muted-foreground hover:bg-accent"
+                    >
+                      Dismiss
+                    </button>
+                    {aiSummaryItems().some((i) => i.confidence < 0.8) && (
+                      <span className="text-xs text-muted-foreground">
+                        <AlertTriangle className="inline h-3 w-3 text-amber-500 mr-0.5" />
+                        Review low-confidence fields before saving
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Screenshot preview (after applying, compact) */}
+            {screenshotPreview && !aiResult && !analyzing && !analysisError && (
+              <div className="flex items-center gap-2">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={screenshotPreview} alt="Chart preview" className="h-10 w-16 rounded object-cover border" />
+                <span className="text-xs text-muted-foreground flex-1">
+                  {Object.keys(aiConfidence).length > 0
+                    ? `AI pre-filled ${Object.keys(aiConfidence).length} field(s) — review highlighted fields below`
+                    : "Screenshot attached"}
+                </span>
+                <button type="button" onClick={dismissAi} className="text-xs text-muted-foreground hover:text-foreground">
+                  Remove
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* ── Tabs ── */}
           <div className="flex gap-0 border-b px-6">
             {tabs.map((tab) => (
               <button
@@ -227,17 +526,24 @@ export function TradeForm({ open, onClose, onSaved, initial, propAccounts, strat
 
           <form onSubmit={handleSubmit}>
             <div className="px-6 py-5 space-y-4">
-              {/* ---- EXECUTION TAB ---- */}
+
+              {/* ──────────── EXECUTION TAB ──────────── */}
               {activeTab === "execution" && (
                 <>
                   {/* Instrument + Direction */}
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1">
-                      <label className="text-sm font-medium">Instrument</label>
+                      <label className="text-sm font-medium">
+                        Instrument
+                        <ConfBadge confidence={aiConfidence.instrument} />
+                      </label>
                       <select
                         value={form.instrument}
-                        onChange={(e) => setForm({ ...form, instrument: e.target.value as TradeFormValues["instrument"] })}
-                        className={inputCls(errors.instrument)}
+                        onChange={(e) => {
+                          setForm({ ...form, instrument: e.target.value as TradeFormValues["instrument"] });
+                          setAiConfidence((c) => { const n = { ...c }; delete n.instrument; return n; });
+                        }}
+                        className={inputCls("instrument", errors.instrument)}
                       >
                         {INSTRUMENTS.map((i) => (
                           <option key={i} value={i}>{INSTRUMENT_LABELS[i]}</option>
@@ -245,13 +551,25 @@ export function TradeForm({ open, onClose, onSaved, initial, propAccounts, strat
                       </select>
                     </div>
                     <div className="space-y-1">
-                      <label className="text-sm font-medium">Direction</label>
-                      <div className="flex rounded-md overflow-hidden border">
+                      <label className="text-sm font-medium">
+                        Direction
+                        <ConfBadge confidence={aiConfidence.direction} />
+                      </label>
+                      <div className={cn(
+                        "flex rounded-md overflow-hidden border",
+                        aiConfidence.direction !== undefined && (
+                          aiConfidence.direction >= 0.8 ? "ring-1 ring-emerald-400" :
+                          aiConfidence.direction >= 0.5 ? "ring-1 ring-amber-400" : "ring-1 ring-red-400"
+                        )
+                      )}>
                         {TRADE_DIRECTIONS.map((d) => (
                           <button
                             key={d}
                             type="button"
-                            onClick={() => setForm({ ...form, direction: d })}
+                            onClick={() => {
+                              setForm({ ...form, direction: d });
+                              setAiConfidence((c) => { const n = { ...c }; delete n.direction; return n; });
+                            }}
                             className={cn(
                               "flex-1 py-2 text-sm font-medium transition-colors",
                               form.direction === d
@@ -271,26 +589,38 @@ export function TradeForm({ open, onClose, onSaved, initial, propAccounts, strat
                   {/* Entry + Exit prices */}
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1">
-                      <label className="text-sm font-medium">Entry Price</label>
+                      <label className="text-sm font-medium">
+                        Entry Price
+                        <ConfBadge confidence={aiConfidence.entry_price} />
+                      </label>
                       <input
                         type="number"
                         step="0.00001"
                         value={form.entry_price || ""}
-                        onChange={(e) => setForm({ ...form, entry_price: parseFloat(e.target.value) || 0 })}
+                        onChange={(e) => {
+                          setForm({ ...form, entry_price: parseFloat(e.target.value) || 0 });
+                          setAiConfidence((c) => { const n = { ...c }; delete n.entry_price; return n; });
+                        }}
                         placeholder="0.00"
-                        className={inputCls(errors.entry_price)}
+                        className={inputCls("entry_price", errors.entry_price)}
                       />
                       {errors.entry_price && <p className="text-xs text-destructive">{errors.entry_price}</p>}
                     </div>
                     <div className="space-y-1">
-                      <label className="text-sm font-medium">Exit Price</label>
+                      <label className="text-sm font-medium">
+                        Exit Price
+                        <ConfBadge confidence={aiConfidence.exit_price} />
+                      </label>
                       <input
                         type="number"
                         step="0.00001"
                         value={form.exit_price ?? ""}
-                        onChange={(e) => setForm({ ...form, exit_price: e.target.value ? parseFloat(e.target.value) : null })}
+                        onChange={(e) => {
+                          setForm({ ...form, exit_price: e.target.value ? parseFloat(e.target.value) : null });
+                          setAiConfidence((c) => { const n = { ...c }; delete n.exit_price; return n; });
+                        }}
                         placeholder="Optional"
-                        className={inputCls(errors.exit_price)}
+                        className={inputCls("exit_price", errors.exit_price)}
                       />
                     </div>
                   </div>
@@ -305,7 +635,7 @@ export function TradeForm({ open, onClose, onSaved, initial, propAccounts, strat
                         min="0.01"
                         value={form.contracts || ""}
                         onChange={(e) => setForm({ ...form, contracts: parseFloat(e.target.value) || 1 })}
-                        className={inputCls(errors.contracts)}
+                        className={inputCls(undefined, errors.contracts)}
                       />
                     </div>
                     <div className="space-y-1">
@@ -330,7 +660,7 @@ export function TradeForm({ open, onClose, onSaved, initial, propAccounts, strat
                         type="datetime-local"
                         defaultValue={toLocalDateTimeInput(form.entry_time)}
                         onChange={(e) => setForm({ ...form, entry_time: localInputToISO(e.target.value) ?? new Date().toISOString() })}
-                        className={inputCls(errors.entry_time)}
+                        className={inputCls(undefined, errors.entry_time)}
                       />
                       {errors.entry_time && <p className="text-xs text-destructive">{errors.entry_time}</p>}
                     </div>
@@ -386,9 +716,7 @@ export function TradeForm({ open, onClose, onSaved, initial, propAccounts, strat
                             onClick={() => setForm({ ...form, outcome: o })}
                             className={cn(
                               "rounded-md px-3 py-1.5 text-sm font-medium border transition-colors",
-                              form.outcome === o
-                                ? colors[o]
-                                : "hover:bg-accent border-border"
+                              form.outcome === o ? colors[o] : "hover:bg-accent border-border"
                             )}
                           >
                             {labels[o]}
@@ -401,11 +729,17 @@ export function TradeForm({ open, onClose, onSaved, initial, propAccounts, strat
                   {/* Session + Prop Account */}
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1">
-                      <label className="text-sm font-medium">Session</label>
+                      <label className="text-sm font-medium">
+                        Session
+                        <ConfBadge confidence={aiConfidence.session} />
+                      </label>
                       <select
                         value={form.session ?? ""}
-                        onChange={(e) => setForm({ ...form, session: (e.target.value as TradeFormValues["session"]) || null })}
-                        className={inputCls()}
+                        onChange={(e) => {
+                          setForm({ ...form, session: (e.target.value as TradeFormValues["session"]) || null });
+                          setAiConfidence((c) => { const n = { ...c }; delete n.session; return n; });
+                        }}
+                        className={inputCls("session")}
                       >
                         <option value="">— None —</option>
                         {TRADING_SESSIONS.map((s) => (
@@ -445,7 +779,7 @@ export function TradeForm({ open, onClose, onSaved, initial, propAccounts, strat
                 </>
               )}
 
-              {/* ---- CONTEXT TAB ---- */}
+              {/* ──────────── CONTEXT TAB ──────────── */}
               {activeTab === "context" && (
                 <>
                   {/* Setup Tags */}
@@ -561,7 +895,7 @@ export function TradeForm({ open, onClose, onSaved, initial, propAccounts, strat
                 </>
               )}
 
-              {/* ---- REVIEW TAB ---- */}
+              {/* ──────────── REVIEW TAB ──────────── */}
               {activeTab === "review" && (
                 <>
                   {/* Lessons */}
@@ -622,7 +956,7 @@ export function TradeForm({ open, onClose, onSaved, initial, propAccounts, strat
               {serverError && <p className="text-sm text-destructive">{serverError}</p>}
             </div>
 
-            {/* Footer */}
+            {/* ── Footer ── */}
             <div className="flex items-center justify-between gap-2 border-t px-6 py-4">
               <div className="flex gap-2">
                 {tabs.map((tab) => (
@@ -656,6 +990,7 @@ export function TradeForm({ open, onClose, onSaved, initial, propAccounts, strat
               </div>
             </div>
           </form>
+
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
