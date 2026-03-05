@@ -1,8 +1,17 @@
+// P7-05: metadata added
+// P7-06: CSV export button added
+import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
 import { TradingView } from "@/components/trading/trading-view";
 import { TradingCoach } from "@/components/ai/trading-coach";
 import { BulkTradeAnalysis } from "@/components/ai/bulk-trade-analysis";
+import { ExportButton } from "@/components/export/export-button";
 import type { Trade, PropAccount, Strategy } from "@/lib/types";
+
+export const metadata: Metadata = {
+  title: "Trading Journal",
+  description: "Log trades, track prop accounts, and review your performance",
+};
 
 export const dynamic = "force-dynamic";
 
@@ -37,11 +46,14 @@ export default async function TradingPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Trading Journal</h1>
-        <p className="text-muted-foreground text-sm mt-1">
-          Log trades, track prop accounts, manage strategies, and review your performance.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold">Trading Journal</h1>
+          <p className="text-muted-foreground text-sm mt-1">
+            Log trades, track prop accounts, manage strategies, and review your performance.
+          </p>
+        </div>
+        <ExportButton href="/api/export/trades" label="Export CSV" />
       </div>
 
       {/* P5-04/06: AI Coaching */}
