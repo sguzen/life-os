@@ -107,11 +107,14 @@ function fillTimeToISO(raw: string): string {
 // ── Core parsing logic ─────────────────────────────────────────────────────
 
 function parseCsvToTrades(rows: CsvRow[]): PreviewTrade[] {
-  // 1. Filter to Filled Market orders only
+  // 1. Filter: keep Filled rows (Market, Limit, Stop); skip Cancelled/Working
   const fills: ParsedFill[] = [];
   for (const row of rows) {
-    if (row.Status !== " Filled") continue;
-    if (row.Type !== " Market") continue;
+    const status = row.Status?.trim();
+    if (status !== "Filled") continue;
+
+    const type = row.Type?.trim();
+    if (type !== "Market" && type !== "Limit" && type !== "Stop") continue;
 
     const side = row["B/S"].trim() as "B" | "S";
     if (side !== "B" && side !== "S") continue;
@@ -278,7 +281,7 @@ export function TradovateImport({ onImported, onClose }: Props) {
           const trades = parseCsvToTrades(results.data);
           if (trades.length === 0) {
             setParseError(
-              "No completed trades found. Make sure the CSV contains rows with Status = 'Filled' and Type = 'Market'."
+              "No completed trades found. Make sure the CSV contains Filled rows (Market, Limit, or Stop orders) with a recognisable Contract and Product."
             );
             return;
           }
