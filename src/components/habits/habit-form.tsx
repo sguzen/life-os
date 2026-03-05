@@ -3,7 +3,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { useState } from "react";
 import { X } from "lucide-react";
-import { z } from "zod";
 import { habitSchema, HABIT_COLORS, type HabitFormData } from "@/lib/validations/habit";
 import type { Habit } from "@/lib/types";
 import { cn } from "@/lib/utils";

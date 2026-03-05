@@ -6,7 +6,7 @@ import type { RunningActivity, RunningLap, RestingHrLog, RaceTarget } from '@/li
 // ── Activities ────────────────────────────────────────────────
 
 export async function getActivities(limit = 20): Promise<RunningActivity[]> {
-  const supabase = await createClient()
+  const supabase = createClient()
   const { data, error } = await supabase
     .from('running_activities')
     .select('*')
@@ -17,7 +17,7 @@ export async function getActivities(limit = 20): Promise<RunningActivity[]> {
 }
 
 export async function getActivityById(id: string): Promise<RunningActivity | null> {
-  const supabase = await createClient()
+  const supabase = createClient()
   const { data, error } = await supabase
     .from('running_activities')
     .select('*')
@@ -31,7 +31,7 @@ export async function updateActivity(
   id: string,
   updates: Partial<Pick<RunningActivity, 'name' | 'workout_type' | 'notes' | 'prescribed_pace_sec_per_km'>>,
 ): Promise<void> {
-  const supabase = await createClient()
+  const supabase = createClient()
   const { error } = await supabase
     .from('running_activities')
     .update(updates)
@@ -40,7 +40,7 @@ export async function updateActivity(
 }
 
 export async function deleteActivity(id: string): Promise<void> {
-  const supabase = await createClient()
+  const supabase = createClient()
   const { error } = await supabase
     .from('running_activities')
     .delete()
@@ -51,7 +51,7 @@ export async function deleteActivity(id: string): Promise<void> {
 // ── Laps ─────────────────────────────────────────────────────
 
 export async function getLapsForActivity(activityId: string): Promise<RunningLap[]> {
-  const supabase = await createClient()
+  const supabase = createClient()
   const { data, error } = await supabase
     .from('running_laps')
     .select('*')
@@ -64,7 +64,7 @@ export async function getLapsForActivity(activityId: string): Promise<RunningLap
 // ── Resting HR ───────────────────────────────────────────────
 
 export async function getRestingHrLogs(days = 30): Promise<RestingHrLog[]> {
-  const supabase = await createClient()
+  const supabase = createClient()
   const from = new Date()
   from.setDate(from.getDate() - days)
   const { data, error } = await supabase
@@ -82,11 +82,10 @@ export async function upsertRestingHr(
   source: 'garmin' | 'manual' = 'manual',
   notes?: string,
 ): Promise<void> {
-  const supabase = await createClient()
+  const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) throw new Error('Not authenticated')
 
-  // Compute spike client-side (same logic, reused from lib)
   const { detectRestingHrSpike } = await import('@/lib/running/hr-spike')
   const isSpike = await detectRestingHrSpike(supabase, user.id, restingHr)
 
@@ -104,7 +103,7 @@ export async function upsertRestingHr(
 // ── Race Targets ─────────────────────────────────────────────
 
 export async function getRaceTargets(): Promise<RaceTarget[]> {
-  const supabase = await createClient()
+  const supabase = createClient()
   const { data, error } = await supabase
     .from('race_targets')
     .select('*')
@@ -116,7 +115,7 @@ export async function getRaceTargets(): Promise<RaceTarget[]> {
 export async function createRaceTarget(
   payload: Omit<RaceTarget, 'id' | 'user_id' | 'target_pace_sec_per_km' | 'created_at' | 'updated_at'>,
 ): Promise<RaceTarget> {
-  const supabase = await createClient()
+  const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) throw new Error('Not authenticated')
   const { data, error } = await supabase
@@ -132,7 +131,7 @@ export async function updateRaceTarget(
   id: string,
   updates: Partial<Pick<RaceTarget, 'race_name' | 'location' | 'race_date' | 'distance_km' | 'target_time_seconds' | 'actual_time_seconds' | 'activity_id' | 'notes'>>,
 ): Promise<void> {
-  const supabase = await createClient()
+  const supabase = createClient()
   const { error } = await supabase
     .from('race_targets')
     .update(updates)
@@ -141,7 +140,7 @@ export async function updateRaceTarget(
 }
 
 export async function deleteRaceTarget(id: string): Promise<void> {
-  const supabase = await createClient()
+  const supabase = createClient()
   const { error } = await supabase
     .from('race_targets')
     .delete()

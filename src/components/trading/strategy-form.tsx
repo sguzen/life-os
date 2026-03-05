@@ -118,9 +118,18 @@ export function StrategyForm({ open, onClose, onSaved, initial }: Props) {
 
     setSaving(true);
     try {
+      const d = result.data
+      const payload = {
+        ...d,
+        description: d.description ?? null,
+        rules: d.rules ?? null,
+        instruments: d.instruments ?? null,
+        timeframes: d.timeframes ?? null,
+        tags: d.tags ?? null,
+      }
       const saved = initial
-        ? await updateStrategy(initial.id, result.data)
-        : await createStrategy(result.data);
+        ? await updateStrategy(initial.id, payload)
+        : await createStrategy(payload);
       onSaved(saved);
       onClose();
     } catch (err) {

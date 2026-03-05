@@ -65,8 +65,10 @@ function speedToSecPerKm(speedMs: number | undefined): number | null {
 function parseFitBuffer(buf: Buffer): Promise<FitData> {
   return new Promise((resolve, reject) => {
     const parser = new FitParser({ force: true, speedUnit: 'm/s', lengthUnit: 'm', temperatureUnit: 'celsius', elapsedRecordField: true, mode: 'list' })
-    parser.parse(buf, (err: Error | null, data: FitData) => {
-      if (err) reject(err)
+    // fit-file-parser types are loose; cast to bypass TS mismatch
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(parser as any).parse(buf, (err: string | undefined, data: FitData) => {
+      if (err) reject(new Error(err))
       else resolve(data)
     })
   })
@@ -76,7 +78,7 @@ function parseFitBuffer(buf: Buffer): Promise<FitData> {
 
 export async function POST(req: NextRequest) {
   // 1. Auth
-  const supabase = await createClient()
+  const supabase = createClient()
   const { data: { user }, error: authErr } = await supabase.auth.getUser()
   if (authErr || !user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -95,7 +97,7 @@ export async function POST(req: NextRequest) {
 
   // 3. Read file bytes
   const arrayBuffer = await file.arrayBuffer()
-  const buf = Buffer.from(arrayBuffer)
+  const buf = Buffer.from(arrayBuffer as ArrayBuffer)
 
   // 4. Parse .fit
   let fitData: FitData
