@@ -1,17 +1,17 @@
 'use client'
 
 // P4-06: Race tracker — upcoming and completed races
-// Seeded with: Belgrade April 19 (42.2 km, 3:32:00 target) and Limassol March 22 (21.1 km, 1:44:30 target)
 
-import { Flag, Plus, CheckCircle2, Clock, MapPin } from 'lucide-react'
+import { useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { Flag, Plus, CheckCircle2, Clock, MapPin, X } from 'lucide-react'
 import { formatPace, formatDuration, daysUntil } from '@/lib/running/format'
+import { addRace } from '@/app/actions/running'
 import type { RaceTarget } from '@/lib/types/running'
 
 interface RaceTrackerProps {
   races: RaceTarget[]
-  onAddRace?: () => void
 }
-
 
 function RaceCard({ race }: { race: RaceTarget }) {
   const days = daysUntil(race.race_date)
@@ -36,7 +36,6 @@ function RaceCard({ race }: { race: RaceTarget }) {
       rounded-xl border p-5 space-y-3 transition-all
       ${isCompleted ? 'border-green-500/30 bg-green-500/5' : isPast ? 'border-white/10 bg-white/5 opacity-60' : 'border-indigo-500/30 bg-indigo-500/5'}
     `}>
-      {/* Header row */}
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
@@ -55,7 +54,6 @@ function RaceCard({ race }: { race: RaceTarget }) {
           </div>
         </div>
 
-        {/* Countdown / result badge */}
         <div className={`
           shrink-0 rounded-lg px-3 py-1.5 text-center min-w-[64px]
           ${isCompleted ? 'bg-green-500/20 text-green-300' : isPast ? 'bg-white/10 text-white/40' : 'bg-indigo-500/20 text-indigo-300'}
@@ -73,7 +71,6 @@ function RaceCard({ race }: { race: RaceTarget }) {
         </div>
       </div>
 
-      {/* Distance + targets */}
       <div className="grid grid-cols-3 gap-3 text-xs">
         <div>
           <p className="text-white/40 mb-0.5">Distance</p>
@@ -89,7 +86,6 @@ function RaceCard({ race }: { race: RaceTarget }) {
         </div>
       </div>
 
-      {/* Actual result (if completed) */}
       {isCompleted && race.actual_time_seconds && (
         <div className="border-t border-white/10 pt-3 grid grid-cols-3 gap-3 text-xs">
           <div>
@@ -118,7 +114,99 @@ function RaceCard({ race }: { race: RaceTarget }) {
   )
 }
 
-export function RaceTracker({ races, onAddRace }: RaceTrackerProps) {
+function AddRaceForm({ onClose }: { onClose: () => void }) {
+  const router = useRouter()
+  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    setLoading(true)
+    setError(null)
+    const result = await addRace(null, new FormData(e.currentTarget))
+    setLoading(false)
+    if (result?.error) {
+      setError(result.error)
+    } else {
+      onClose()
+      router.refresh()
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-3 rounded-xl border border-white/10 bg-white/5 p-4">
+      <div className="flex items-center justify-between mb-1">
+        <p className="text-sm font-semibold text-white">New race</p>
+        <button type="button" onClick={onClose} className="text-white/30 hover:text-white">
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      {error && (
+        <p className="text-xs text-red-400 bg-red-500/10 rounded-lg px-3 py-2">{error}</p>
+      )}
+
+      <input
+        name="race_name"
+        required
+        placeholder="Race name *"
+        className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-indigo-500"
+      />
+      <input
+        name="location"
+        placeholder="Location (optional)"
+        className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-indigo-500"
+      />
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="text-[10px] text-white/40 mb-1 block">Date *</label>
+          <input
+            type="date"
+            name="race_date"
+            required
+            className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+          />
+        </div>
+        <div>
+          <label className="text-[10px] text-white/40 mb-1 block">Distance (km) *</label>
+          <input
+            type="number"
+            name="distance_km"
+            step="0.1"
+            required
+            placeholder="42.2"
+            className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-indigo-500"
+          />
+        </div>
+      </div>
+      <div>
+        <label className="text-[10px] text-white/40 mb-1 block">Target time (H:MM:SS) *</label>
+        <input
+          name="target_time"
+          required
+          placeholder="3:30:00"
+          className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white font-mono placeholder:text-white/30 focus:outline-none focus:border-indigo-500"
+        />
+      </div>
+      <textarea
+        name="notes"
+        rows={2}
+        placeholder="Notes (optional)"
+        className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-indigo-500 resize-none"
+      />
+      <button
+        type="submit"
+        disabled={loading}
+        className="w-full rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-semibold py-2 transition-colors"
+      >
+        {loading ? 'Saving…' : 'Add race'}
+      </button>
+    </form>
+  )
+}
+
+export function RaceTracker({ races }: RaceTrackerProps) {
+  const [showForm, setShowForm] = useState(false)
   const upcoming = races.filter((r) => !r.actual_time_seconds && daysUntil(r.race_date) >= 0)
   const completed = races.filter((r) => r.actual_time_seconds || daysUntil(r.race_date) < 0)
 
@@ -129,9 +217,9 @@ export function RaceTracker({ races, onAddRace }: RaceTrackerProps) {
           <Flag className="h-4 w-4 text-indigo-400" />
           <h2 className="text-sm font-semibold text-white">Race Tracker</h2>
         </div>
-        {onAddRace && (
+        {!showForm && (
           <button
-            onClick={onAddRace}
+            onClick={() => setShowForm(true)}
             className="flex items-center gap-1.5 text-xs text-white/40 hover:text-white transition-colors"
           >
             <Plus className="h-3.5 w-3.5" /> Add race
@@ -139,7 +227,9 @@ export function RaceTracker({ races, onAddRace }: RaceTrackerProps) {
         )}
       </div>
 
-      {races.length === 0 && (
+      {showForm && <AddRaceForm onClose={() => setShowForm(false)} />}
+
+      {!showForm && races.length === 0 && (
         <div className="rounded-xl bg-white/5 border border-white/10 p-6 text-center">
           <Flag className="h-8 w-8 text-white/20 mx-auto mb-2" />
           <p className="text-sm text-white/40">No races yet</p>
