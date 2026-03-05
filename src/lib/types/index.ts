@@ -113,6 +113,9 @@ export interface Trade {
   post_emotion: string | null;
   followed_rules: boolean | null;
   is_reviewed: boolean;
+  // Tradovate Position_History.csv import identifiers
+  position_id: string | null;
+  pair_id: string | null;
   created_at: string;
   updated_at: string;
   // joined relations (optional)

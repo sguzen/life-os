@@ -283,22 +283,41 @@ export async function importTrades(inputs: TradeImportInput[]): Promise<ImportRe
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Not authenticated");
 
-  // Fetch existing trades to check duplicates by date + instrument + entry_price + direction
-  const { data: existing, error: fetchError } = await supabase
-    .from("trades")
-    .select("entry_time, instrument, entry_price, direction")
-    .eq("user_id", user.id);
-  if (fetchError) throw fetchError;
+  // Split inputs: those with a pair_id use the new dedup key; others use the legacy composite key.
+  const inputsWithPairId    = inputs.filter((t) => t.pair_id);
+  const inputsWithoutPairId = inputs.filter((t) => !t.pair_id);
 
-  const existingKeys = new Set(
-    (existing ?? []).map(
-      (t) => `${t.entry_time.substring(0, 10)}|${t.instrument}|${t.entry_price}|${t.direction}`
-    )
-  );
+  // Fetch existing pair_ids for new-style dedup
+  let existingPairIds = new Set<string>();
+  if (inputsWithPairId.length > 0) {
+    const { data, error } = await supabase
+      .from("trades")
+      .select("pair_id")
+      .eq("user_id", user.id)
+      .not("pair_id", "is", null);
+    if (error) throw error;
+    existingPairIds = new Set((data ?? []).map((t) => t.pair_id as string));
+  }
+
+  // Fetch legacy composite keys for backward-compat dedup
+  let existingCompositeKeys = new Set<string>();
+  if (inputsWithoutPairId.length > 0) {
+    const { data, error } = await supabase
+      .from("trades")
+      .select("entry_time, instrument, entry_price, direction")
+      .eq("user_id", user.id);
+    if (error) throw error;
+    existingCompositeKeys = new Set(
+      (data ?? []).map(
+        (t) => `${t.entry_time.substring(0, 10)}|${t.instrument}|${t.entry_price}|${t.direction}`
+      )
+    );
+  }
 
   const toInsert = inputs.filter((t) => {
+    if (t.pair_id) return !existingPairIds.has(t.pair_id);
     const key = `${t.entry_time.substring(0, 10)}|${t.instrument}|${t.entry_price}|${t.direction}`;
-    return !existingKeys.has(key);
+    return !existingCompositeKeys.has(key);
   });
 
   if (toInsert.length === 0) {
