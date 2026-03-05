@@ -1,7 +1,7 @@
 "use client";
 
 import * as Dialog from "@radix-ui/react-dialog";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { X } from "lucide-react";
 import { debtSchema, type DebtFormValues } from "@/lib/validations/finance";
 import type { Debt } from "@/lib/types";
@@ -45,11 +45,14 @@ export function DebtForm({ open, onOpenChange, debt, onSubmit }: DebtFormProps) 
   const [errors, setErrors] = useState<Partial<Record<keyof DebtFormValues, string>>>({});
   const [submitting, setSubmitting] = useState(false);
 
-  function handleOpenChange(val: boolean) {
-    if (val) {
+  useEffect(() => {
+    if (open) {
       setForm(debt ? fromDebt(debt) : defaultValues);
       setErrors({});
     }
+  }, [open, debt]);
+
+  function handleOpenChange(val: boolean) {
     onOpenChange(val);
   }
 

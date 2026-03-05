@@ -1,7 +1,7 @@
 "use client";
 
 import * as Dialog from "@radix-ui/react-dialog";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { X } from "lucide-react";
 import { habitSchema, HABIT_COLORS, type HabitFormData } from "@/lib/validations/habit";
 import type { Habit } from "@/lib/types";
@@ -38,9 +38,8 @@ export function HabitForm({ open, onOpenChange, habit, onSubmit }: HabitFormProp
   const [errors, setErrors] = useState<Partial<Record<keyof HabitFormData, string>>>({});
   const [submitting, setSubmitting] = useState(false);
 
-  // Reset form when dialog opens
-  function handleOpenChange(val: boolean) {
-    if (val) {
+  useEffect(() => {
+    if (open) {
       setForm(
         habit
           ? {
@@ -54,6 +53,9 @@ export function HabitForm({ open, onOpenChange, habit, onSubmit }: HabitFormProp
       );
       setErrors({});
     }
+  }, [open, habit]);
+
+  function handleOpenChange(val: boolean) {
     onOpenChange(val);
   }
 
