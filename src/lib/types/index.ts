@@ -48,7 +48,7 @@ export interface HabitWithLogs extends Habit {
 
 // ---- Trading Journal (P2) ----
 
-export type Instrument = "NQ" | "Gold" | "CL" | "6E";
+export type Instrument = "NQ" | "Gold" | "CL" | "6E" | "ES";
 export type TradeDirection = "long" | "short";
 export type TradeOutcome = "win" | "loss" | "break_even" | "open";
 export type PropFirm = "FundedNext" | "AlphaFutures" | "TakeProfitTrader" | "YRM";
