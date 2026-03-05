@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { Plus, SlidersHorizontal, TrendingUp, TrendingDown, FileUp } from "lucide-react";
+import { Plus, SlidersHorizontal, TrendingUp, TrendingDown, FileUp, CheckSquare } from "lucide-react";
 import { TradeForm } from "./trade-form";
 import { TradovateImport } from "./tradovate-import";
-import { getTrades } from "@/lib/supabase/trading";
+import { getTrades, bulkUpdateTrades } from "@/lib/supabase/trading";
 import { INSTRUMENTS } from "@/lib/validations/trading";
 import { cn } from "@/lib/utils";
 import type { Trade, PropAccount, Strategy, Instrument, TradeOutcome } from "@/lib/types";
@@ -72,6 +72,12 @@ export function TradesList({ trades, propAccounts, strategies, onTradesChange, o
     search: "",
   });
 
+  // Bulk selection
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkAccount, setBulkAccount] = useState("");
+  const [bulkStrategy, setBulkStrategy] = useState("");
+  const [bulkApplying, setBulkApplying] = useState(false);
+
   function handleSaved(saved: Trade) {
     if (trades.find((t) => t.id === saved.id)) {
       onTradesChange(trades.map((t) => (t.id === saved.id ? saved : t)));
@@ -81,7 +87,6 @@ export function TradesList({ trades, propAccounts, strategies, onTradesChange, o
   }
 
   async function handleImported() {
-    // Re-fetch full trade list after import to pick up newly inserted rows
     const refreshed = await getTrades();
     onTradesChange(refreshed);
     setImportOpen(false);
@@ -110,6 +115,72 @@ export function TradesList({ trades, propAccounts, strategies, onTradesChange, o
       return true;
     });
   }, [trades, filters]);
+
+  // Checkbox helpers
+  const allVisibleSelected =
+    filtered.length > 0 && filtered.every((t) => selectedIds.has(t.id));
+  const someVisibleSelected = filtered.some((t) => selectedIds.has(t.id));
+
+  function toggleAll() {
+    if (allVisibleSelected) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        filtered.forEach((t) => next.delete(t.id));
+        return next;
+      });
+    } else {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        filtered.forEach((t) => next.add(t.id));
+        return next;
+      });
+    }
+  }
+
+  function toggleOne(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  async function applyBulk() {
+    if (!bulkAccount && !bulkStrategy) return;
+    setBulkApplying(true);
+    try {
+      const ids = Array.from(selectedIds);
+      const patch: { prop_account_id?: string | null; strategy_id?: string | null } = {};
+      if (bulkAccount !== "") patch.prop_account_id = bulkAccount || null;
+      if (bulkStrategy !== "") patch.strategy_id = bulkStrategy || null;
+      await bulkUpdateTrades(ids, patch);
+      // Reflect changes locally without a full re-fetch
+      onTradesChange(
+        trades.map((t) =>
+          selectedIds.has(t.id)
+            ? {
+                ...t,
+                prop_account_id: bulkAccount !== "" ? (bulkAccount || null) : t.prop_account_id,
+                strategy_id: bulkStrategy !== "" ? (bulkStrategy || null) : t.strategy_id,
+                prop_accounts: bulkAccount
+                  ? propAccounts.find((a) => a.id === bulkAccount) ?? t.prop_accounts
+                  : t.prop_accounts,
+                strategies: bulkStrategy
+                  ? strategies.find((s) => s.id === bulkStrategy) ?? t.strategies
+                  : t.strategies,
+              }
+            : t
+        )
+      );
+      setSelectedIds(new Set());
+      setBulkAccount("");
+      setBulkStrategy("");
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setBulkApplying(false);
+    }
+  }
 
   const selectCls = "rounded-md border bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring";
 
@@ -229,6 +300,53 @@ export function TradesList({ trades, propAccounts, strategies, onTradesChange, o
         </div>
       )}
 
+      {/* Bulk action bar */}
+      {selectedIds.size > 0 && (
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-primary/30 bg-primary/5 px-4 py-2.5">
+          <div className="flex items-center gap-1.5 text-sm font-medium">
+            <CheckSquare className="h-4 w-4 text-primary" />
+            {selectedIds.size} selected
+          </div>
+          <div className="flex flex-wrap items-center gap-2 flex-1">
+            <select
+              value={bulkAccount}
+              onChange={(e) => setBulkAccount(e.target.value)}
+              className="rounded-md border bg-background px-2.5 py-1 text-sm outline-none focus:ring-2 focus:ring-ring"
+            >
+              <option value="">Account (unchanged)</option>
+              <option value=" ">— Clear account —</option>
+              {propAccounts.map((a) => (
+                <option key={a.id} value={a.id}>{a.firm} · {a.account_label}</option>
+              ))}
+            </select>
+            <select
+              value={bulkStrategy}
+              onChange={(e) => setBulkStrategy(e.target.value)}
+              className="rounded-md border bg-background px-2.5 py-1 text-sm outline-none focus:ring-2 focus:ring-ring"
+            >
+              <option value="">Strategy (unchanged)</option>
+              <option value=" ">— Clear strategy —</option>
+              {strategies.map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+            <button
+              onClick={applyBulk}
+              disabled={bulkApplying || (!bulkAccount && !bulkStrategy)}
+              className="rounded-md bg-primary px-3 py-1 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            >
+              {bulkApplying ? "Applying…" : "Apply"}
+            </button>
+          </div>
+          <button
+            onClick={() => { setSelectedIds(new Set()); setBulkAccount(""); setBulkStrategy(""); }}
+            className="text-xs text-muted-foreground hover:text-foreground underline"
+          >
+            Clear selection
+          </button>
+        </div>
+      )}
+
       {/* Table / list */}
       {filtered.length === 0 ? (
         <div className="rounded-xl border border-dashed p-8 text-center text-muted-foreground">
@@ -244,6 +362,15 @@ export function TradesList({ trades, propAccounts, strategies, onTradesChange, o
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-muted/40">
+                  <th className="pl-4 pr-2 py-2.5 w-8">
+                    <input
+                      type="checkbox"
+                      checked={allVisibleSelected}
+                      ref={(el) => { if (el) el.indeterminate = someVisibleSelected && !allVisibleSelected; }}
+                      onChange={toggleAll}
+                      className="rounded border-border"
+                    />
+                  </th>
                   <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">Date/Time</th>
                   <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">Instrument</th>
                   <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">Dir</th>
@@ -261,8 +388,22 @@ export function TradesList({ trades, propAccounts, strategies, onTradesChange, o
                   <tr
                     key={trade.id}
                     onClick={() => onSelectTrade(trade)}
-                    className="hover:bg-accent/50 cursor-pointer transition-colors"
+                    className={cn(
+                      "hover:bg-accent/50 cursor-pointer transition-colors",
+                      selectedIds.has(trade.id) && "bg-primary/5"
+                    )}
                   >
+                    <td
+                      className="pl-4 pr-2 py-3 w-8"
+                      onClick={(e) => { e.stopPropagation(); toggleOne(trade.id); }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(trade.id)}
+                        onChange={() => toggleOne(trade.id)}
+                        className="rounded border-border"
+                      />
+                    </td>
                     <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">
                       {formatDateTime(trade.entry_time)}
                     </td>
@@ -308,43 +449,61 @@ export function TradesList({ trades, propAccounts, strategies, onTradesChange, o
           {/* Mobile cards */}
           <div className="lg:hidden divide-y">
             {filtered.map((trade) => (
-              <button
+              <div
                 key={trade.id}
-                onClick={() => onSelectTrade(trade)}
-                className="w-full text-left p-4 hover:bg-accent/50 transition-colors"
+                className={cn(
+                  "flex items-start gap-3 p-4",
+                  selectedIds.has(trade.id) && "bg-primary/5"
+                )}
               >
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold">{trade.instrument}</span>
-                      {trade.direction === "long" ? (
-                        <TrendingUp className="h-3.5 w-3.5 text-emerald-500" />
-                      ) : (
-                        <TrendingDown className="h-3.5 w-3.5 text-red-500" />
-                      )}
-                      <OutcomeChip outcome={trade.outcome} />
+                <div
+                  className="pt-0.5 shrink-0"
+                  onClick={(e) => { e.stopPropagation(); toggleOne(trade.id); }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.has(trade.id)}
+                    onChange={() => toggleOne(trade.id)}
+                    className="rounded border-border"
+                  />
+                </div>
+                <button
+                  onClick={() => onSelectTrade(trade)}
+                  className="flex-1 text-left"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold">{trade.instrument}</span>
+                        {trade.direction === "long" ? (
+                          <TrendingUp className="h-3.5 w-3.5 text-emerald-500" />
+                        ) : (
+                          <TrendingDown className="h-3.5 w-3.5 text-red-500" />
+                        )}
+                        <OutcomeChip outcome={trade.outcome} />
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {formatDateTime(trade.entry_time)}
+                        {trade.strategies?.name && ` · ${trade.strategies.name}`}
+                      </p>
                     </div>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {formatDateTime(trade.entry_time)}
-                      {trade.strategies?.name && ` · ${trade.strategies.name}`}
+                    <p className={cn(
+                      "font-semibold tabular-nums shrink-0",
+                      (trade.net_pnl ?? 0) > 0 && "text-emerald-600",
+                      (trade.net_pnl ?? 0) < 0 && "text-red-600"
+                    )}>
+                      {formatMoney(trade.net_pnl)}
                     </p>
                   </div>
-                  <p className={cn(
-                    "font-semibold tabular-nums shrink-0",
-                    (trade.net_pnl ?? 0) > 0 && "text-emerald-600",
-                    (trade.net_pnl ?? 0) < 0 && "text-red-600"
-                  )}>
-                    {formatMoney(trade.net_pnl)}
-                  </p>
-                </div>
-                {(trade.setup_tags ?? []).length > 0 && (
-                  <div className="flex flex-wrap gap-1 mt-1.5">
-                    {(trade.setup_tags ?? []).slice(0, 4).map((tag) => (
-                      <span key={tag} className="rounded bg-accent px-1.5 py-0.5 text-xs">{tag}</span>
-                    ))}
-                  </div>
-                )}
-              </button>
+                  {(trade.setup_tags ?? []).length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1.5">
+                      {(trade.setup_tags ?? []).slice(0, 4).map((tag) => (
+                        <span key={tag} className="rounded bg-accent px-1.5 py-0.5 text-xs">{tag}</span>
+                      ))}
+                    </div>
+                  )}
+                </button>
+              </div>
             ))}
           </div>
         </div>
@@ -360,6 +519,8 @@ export function TradesList({ trades, propAccounts, strategies, onTradesChange, o
 
       {importOpen && (
         <TradovateImport
+          propAccounts={propAccounts}
+          strategies={strategies}
           onImported={handleImported}
           onClose={() => setImportOpen(false)}
         />

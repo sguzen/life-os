@@ -5,7 +5,7 @@ import Papa from "papaparse";
 import { Upload, X, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
 import { importTrades, type TradeImportInput } from "@/lib/supabase/trading";
 import { cn } from "@/lib/utils";
-import type { Instrument, TradeDirection, TradingSession, Trade } from "@/lib/types";
+import type { Instrument, TradeDirection, TradingSession, Trade, PropAccount, Strategy } from "@/lib/types";
 
 // ── CSV row shape ──────────────────────────────────────────────────────────
 
@@ -325,18 +325,22 @@ function formatDateTime(iso: string) {
 // ── Component ──────────────────────────────────────────────────────────────
 
 interface Props {
+  propAccounts: PropAccount[];
+  strategies: Strategy[];
   onImported: (newTrades: Trade[]) => void;
   onClose: () => void;
 }
 
 type Step = "idle" | "preview" | "importing" | "done";
 
-export function TradovateImport({ onImported, onClose }: Props) {
+export function TradovateImport({ propAccounts, strategies, onImported, onClose }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [step, setStep]         = useState<Step>("idle");
   const [preview, setPreview]   = useState<PreviewTrade[]>([]);
   const [parseError, setParseError] = useState<string | null>(null);
   const [result, setResult]     = useState<{ imported: number; skipped: number } | null>(null);
+  const [selectedAccountId, setSelectedAccountId] = useState("");
+  const [selectedStrategyId, setSelectedStrategyId] = useState("");
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -373,7 +377,11 @@ export function TradovateImport({ onImported, onClose }: Props) {
   async function handleConfirm() {
     setStep("importing");
     try {
-      const res = await importTrades(preview.map(toImportInput));
+      const overrides = {
+        prop_account_id: selectedAccountId || null,
+        strategy_id: selectedStrategyId || null,
+      };
+      const res = await importTrades(preview.map((t) => ({ ...toImportInput(t), ...overrides })));
       setResult(res);
       setStep("done");
       onImported([]);
@@ -524,6 +532,47 @@ export function TradovateImport({ onImported, onClose }: Props) {
                   Losses: <span className="font-medium text-foreground">{losses}</span>
                 </span>
               </div>
+
+              {/* Assign on import */}
+              {(propAccounts.length > 0 || strategies.length > 0) && (
+                <div className="rounded-lg border bg-card px-4 py-3 space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                    Assign to (optional)
+                  </p>
+                  <div className="flex flex-wrap gap-3">
+                    {propAccounts.length > 0 && (
+                      <div className="flex items-center gap-2">
+                        <label className="text-sm text-muted-foreground whitespace-nowrap">Account</label>
+                        <select
+                          value={selectedAccountId}
+                          onChange={(e) => setSelectedAccountId(e.target.value)}
+                          className="rounded-md border bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
+                        >
+                          <option value="">None</option>
+                          {propAccounts.map((a) => (
+                            <option key={a.id} value={a.id}>{a.firm} · {a.account_label}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                    {strategies.length > 0 && (
+                      <div className="flex items-center gap-2">
+                        <label className="text-sm text-muted-foreground whitespace-nowrap">Strategy</label>
+                        <select
+                          value={selectedStrategyId}
+                          onChange={(e) => setSelectedStrategyId(e.target.value)}
+                          className="rounded-md border bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
+                        >
+                          <option value="">None</option>
+                          {strategies.map((s) => (
+                            <option key={s.id} value={s.id}>{s.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
