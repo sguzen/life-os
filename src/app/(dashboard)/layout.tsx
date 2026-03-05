@@ -8,7 +8,10 @@ export default function DashboardLayout({
   return (
     <div className="flex h-screen overflow-hidden">
       <Sidebar />
-      <main className="flex-1 overflow-y-auto p-6">{children}</main>
+      {/* Main content — offset on mobile to account for fixed top bar */}
+      <main className="flex-1 overflow-y-auto p-4 pt-18 sm:p-6 lg:pt-6">
+        {children}
+      </main>
     </div>
   );
 }
