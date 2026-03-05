@@ -63,6 +63,7 @@ export function TradingView({ initialTrades, initialAccounts, initialStrategies 
             propAccounts={accounts}
             strategies={strategies}
             onTradesChange={setTrades}
+            onAccountsChange={setAccounts}
             onSelectTrade={(t) => setSelectedTrade(t)}
           />
         )}
