@@ -1,4 +1,5 @@
 // P4-07: Running dashboard — overview page
+// P5-03: Running Coach AI widget added
 
 import { Suspense } from 'react'
 import { Upload } from 'lucide-react'
@@ -9,6 +10,7 @@ import { RestingHrChart } from '@/components/running/resting-hr-chart'
 import { FitUpload } from '@/components/running/fit-upload'
 import { LogRestingHrForm } from '@/components/running/log-resting-hr-form'
 import { formatDistance, formatDuration, formatPace } from '@/lib/running/format'
+import { RunningCoach } from '@/components/ai/running-coach'
 
 // ── Summary stats (last 7 days) ───────────────────────────────
 
@@ -54,6 +56,9 @@ export default async function RunningPage() {
           </div>
         ))}
       </div>
+
+      {/* AI Coach */}
+      <RunningCoach />
 
       {/* Main content: 2-col on lg */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
