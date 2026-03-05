@@ -253,13 +253,38 @@ export async function importTrades(inputs: TradeImportInput[]): Promise<ImportRe
     return { imported: 0, skipped: inputs.length };
   }
 
-  const { error } = await supabase
-    .from("trades")
-    .insert(toInsert.map((t) => ({ ...t, user_id: user.id })));
+  // Try bulk insert first (fast path)
+  const rows = toInsert.map((t) => ({ ...t, user_id: user.id }));
+  const { error: bulkError } = await supabase.from("trades").insert(rows);
 
-  if (error) throw error;
+  if (!bulkError) {
+    return { imported: toInsert.length, skipped: inputs.length - toInsert.length };
+  }
 
-  return { imported: toInsert.length, skipped: inputs.length - toInsert.length };
+  // Bulk failed — fall back to row-by-row so partial batches still succeed.
+  // This handles cases like unsupported enum values (e.g. 'ES' before migration).
+  let imported = 0;
+  const rowErrors: string[] = [];
+
+  for (const row of rows) {
+    const { error: rowError } = await supabase.from("trades").insert(row);
+    if (rowError) {
+      rowErrors.push(`${row.instrument} ${row.direction} @ ${row.entry_price}: ${rowError.message}`);
+    } else {
+      imported++;
+    }
+  }
+
+  const skipped = inputs.length - toInsert.length;
+
+  if (imported === 0) {
+    // Every row failed — surface the first error clearly
+    const detail = rowErrors[0] ?? bulkError.message;
+    throw new Error(`Import failed: ${detail}`);
+  }
+
+  // Partial success — return counts; caller can show skipped warning
+  return { imported, skipped: skipped + rowErrors.length };
 }
 
 // ============================================================

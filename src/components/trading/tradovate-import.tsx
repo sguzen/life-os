@@ -378,7 +378,12 @@ export function TradovateImport({ onImported, onClose }: Props) {
       setStep("done");
       onImported([]);
     } catch (err) {
-      setParseError(err instanceof Error ? err.message : "Import failed");
+      // PostgrestError is a plain object (not Error instance) — handle both shapes
+      const msg =
+        err instanceof Error
+          ? err.message
+          : (err as { message?: string })?.message ?? "Import failed";
+      setParseError(msg);
       setStep("preview");
     }
   }
