@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import { Plus, SlidersHorizontal, TrendingUp, TrendingDown, FileUp, CheckSquare } from "lucide-react";
 import { TradeForm } from "./trade-form";
 import { TradovateImport } from "./tradovate-import";
-import { getTrades, bulkUpdateTrades } from "@/lib/supabase/trading";
+import { getTrades, getPropAccounts, bulkUpdateTrades } from "@/lib/supabase/trading";
 import { INSTRUMENTS } from "@/lib/validations/trading";
 import { cn } from "@/lib/utils";
 import type { Trade, PropAccount, Strategy, Instrument, TradeOutcome } from "@/lib/types";
@@ -14,6 +14,7 @@ interface Props {
   propAccounts: PropAccount[];
   strategies: Strategy[];
   onTradesChange: (trades: Trade[]) => void;
+  onAccountsChange: (accounts: PropAccount[]) => void;
   onSelectTrade: (trade: Trade) => void;
 }
 
@@ -58,7 +59,7 @@ function OutcomeChip({ outcome }: { outcome: Trade["outcome"] }) {
   );
 }
 
-export function TradesList({ trades, propAccounts, strategies, onTradesChange, onSelectTrade }: Props) {
+export function TradesList({ trades, propAccounts, strategies, onTradesChange, onAccountsChange, onSelectTrade }: Props) {
   const [formOpen, setFormOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
@@ -87,8 +88,9 @@ export function TradesList({ trades, propAccounts, strategies, onTradesChange, o
   }
 
   async function handleImported() {
-    const refreshed = await getTrades();
-    onTradesChange(refreshed);
+    const [refreshedTrades, refreshedAccounts] = await Promise.all([getTrades(), getPropAccounts()]);
+    onTradesChange(refreshedTrades);
+    onAccountsChange(refreshedAccounts);
     setImportOpen(false);
   }
 
@@ -154,7 +156,8 @@ export function TradesList({ trades, propAccounts, strategies, onTradesChange, o
       if (bulkAccount !== "") patch.prop_account_id = bulkAccount || null;
       if (bulkStrategy !== "") patch.strategy_id = bulkStrategy || null;
       await bulkUpdateTrades(ids, patch);
-      // Reflect changes locally without a full re-fetch
+      // Reflect trade changes locally + refresh account balances from server
+      const refreshedAccounts = await getPropAccounts();
       onTradesChange(
         trades.map((t) =>
           selectedIds.has(t.id)
@@ -172,6 +175,7 @@ export function TradesList({ trades, propAccounts, strategies, onTradesChange, o
             : t
         )
       );
+      onAccountsChange(refreshedAccounts);
       setSelectedIds(new Set());
       setBulkAccount("");
       setBulkStrategy("");

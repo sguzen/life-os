@@ -216,14 +216,56 @@ export async function deleteTrade(id: string): Promise<void> {
   if (error) throw error;
 }
 
+/**
+ * Recomputes a prop account's balance as:
+ *   account_size + SUM(net_pnl of all trades assigned to it)
+ * Call this after any trade ↔ account assignment change.
+ */
+export async function recomputeAccountBalance(accountId: string): Promise<void> {
+  const supabase = createClient();
+
+  const [{ data: tradePnls, error: tradesErr }, { data: account, error: accountErr }] =
+    await Promise.all([
+      supabase.from("trades").select("net_pnl").eq("prop_account_id", accountId),
+      supabase.from("prop_accounts").select("account_size").eq("id", accountId).single(),
+    ]);
+
+  if (tradesErr) throw tradesErr;
+  if (accountErr) throw accountErr;
+
+  const totalPnl = (tradePnls ?? []).reduce((s, t) => s + (t.net_pnl ?? 0), 0);
+  const newBalance = (account.account_size ?? 0) + totalPnl;
+
+  const { error: updateErr } = await supabase
+    .from("prop_accounts")
+    .update({ balance: newBalance })
+    .eq("id", accountId);
+  if (updateErr) throw updateErr;
+}
+
 export async function bulkUpdateTrades(
   ids: string[],
   input: { prop_account_id?: string | null; strategy_id?: string | null }
 ): Promise<void> {
   if (ids.length === 0) return;
   const supabase = createClient();
+
+  // Collect old account IDs before the update so we can recompute those balances too
+  const accountsToRecompute = new Set<string>();
+  if ("prop_account_id" in input) {
+    const { data: before } = await supabase
+      .from("trades")
+      .select("prop_account_id")
+      .in("id", ids);
+    (before ?? []).forEach((t) => { if (t.prop_account_id) accountsToRecompute.add(t.prop_account_id); });
+    if (input.prop_account_id) accountsToRecompute.add(input.prop_account_id);
+  }
+
   const { error } = await supabase.from("trades").update(input).in("id", ids);
   if (error) throw error;
+
+  // Recompute balances for all affected accounts
+  await Promise.all(Array.from(accountsToRecompute).map(recomputeAccountBalance));
 }
 
 export type TradeImportInput = Omit<
@@ -268,6 +310,7 @@ export async function importTrades(inputs: TradeImportInput[]): Promise<ImportRe
   const { error: bulkError } = await supabase.from("trades").insert(rows);
 
   if (!bulkError) {
+    await recomputeAffectedAccounts(toInsert);
     return { imported: toInsert.length, skipped: inputs.length - toInsert.length };
   }
 
@@ -293,8 +336,14 @@ export async function importTrades(inputs: TradeImportInput[]): Promise<ImportRe
     throw new Error(`Import failed: ${detail}`);
   }
 
-  // Partial success — return counts; caller can show skipped warning
+  // Partial success — recompute accounts and return counts
+  await recomputeAffectedAccounts(toInsert);
   return { imported, skipped: skipped + rowErrors.length };
+}
+
+function recomputeAffectedAccounts(inputs: TradeImportInput[]): Promise<void[]> {
+  const ids = Array.from(new Set(inputs.map((t) => t.prop_account_id).filter(Boolean))) as string[];
+  return Promise.all(ids.map(recomputeAccountBalance));
 }
 
 // ============================================================
