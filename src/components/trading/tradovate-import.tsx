@@ -24,12 +24,18 @@ interface CsvRow {
 }
 
 interface ParsedFill {
-  orderId: string;
   side: "B" | "S";
-  contract: string; // stripped root, e.g. MNQ
-  product: string;  // raw product, e.g. MNQ
+  contract: string; // root symbol, e.g. MNQ (expiry stripped)
+  product: string;  // raw product column, e.g. MNQ
   avgPrice: number;
   filledQty: number;
+  fillTime: Date;
+  fillTimeRaw: string;
+}
+
+interface Leg {
+  qty: number;
+  price: number;
   fillTime: Date;
   fillTimeRaw: string;
 }
@@ -47,24 +53,31 @@ interface PreviewTrade {
   product: string;
 }
 
-// ── Constants ──────────────────────────────────────────────────────────────
+// ── Instrument & PnL config ────────────────────────────────────────────────
 
-const POINT_VALUES: Record<string, number> = {
-  NQ: 20,
-  MNQ: 2,
-  GC: 100,
-  MGC: 10,
-  CL: 1000,
-  MCL: 100,
-  "6E": 125000,
-  M6E: 12500,
+// Products that use tick-based PnL: (priceDiff / tickSize) * tickValue * qty
+const TICK_PRODUCTS: Record<string, { tickSize: number; tickValue: number }> = {
+  M6E: { tickSize: 0.0001, tickValue: 6.25 },
+  "6E": { tickSize: 0.0001, tickValue: 12.50 },
 };
 
-// ── Helpers ────────────────────────────────────────────────────────────────
+// Products that use simple point-value PnL: priceDiff * pointValue * qty
+const POINT_VALUE: Record<string, number> = {
+  MNQ: 2,
+  NQ: 20,
+  MGC: 10,   // $1 per 0.1 point = $10 per full point
+  GC: 100,
+  MCL: 10,
+  CL: 1000,
+};
 
-function stripExpiry(contract: string): string {
-  // Remove trailing month-code + year digits: MNQH6 → MNQ, NQZ24 → NQ
-  return contract.trim().replace(/[A-Z]\d{1,2}$/, "");
+function calcPnl(product: string, priceDiff: number, qty: number): number {
+  const p = product.trim().toUpperCase();
+  const tick = TICK_PRODUCTS[p];
+  if (tick) {
+    return (priceDiff / tick.tickSize) * tick.tickValue * qty;
+  }
+  return priceDiff * (POINT_VALUE[p] ?? 1) * qty;
 }
 
 function mapInstrument(product: string): Instrument {
@@ -73,28 +86,17 @@ function mapInstrument(product: string): Instrument {
   if (p === "GC" || p === "MGC") return "Gold";
   if (p === "CL" || p === "MCL") return "CL";
   if (p === "6E" || p === "M6E") return "6E";
-  throw new Error(`Unknown product: ${product}`);
+  throw new Error(`Unknown product: "${product}"`);
 }
 
-function getPointValue(product: string): number {
-  return POINT_VALUES[product.trim().toUpperCase()] ?? 1;
-}
-
-function detectSession(hour: number): TradingSession {
-  if (hour >= 2 && hour < 8) return "london";
-  if (hour >= 8 && hour < 12) return "new_york_am";
-  if (hour >= 12 && hour < 17) return "new_york_pm";
-  return "overnight";
-}
+// ── Time helpers ───────────────────────────────────────────────────────────
 
 // Parse Tradovate Fill Time: "M/D/YYYY H:MM:SS" → Date
 function parseFillTime(raw: string): Date {
   const trimmed = raw.trim();
   const [datePart, timePart] = trimmed.split(" ");
   const [m, d, y] = datePart.split("/");
-  return new Date(
-    `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}T${timePart}`
-  );
+  return new Date(`${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}T${timePart}`);
 }
 
 function fillTimeToISO(raw: string): string {
@@ -104,10 +106,117 @@ function fillTimeToISO(raw: string): string {
   return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}T${timePart}`;
 }
 
-// ── Core parsing logic ─────────────────────────────────────────────────────
+function detectSession(hour: number): TradingSession {
+  if (hour >= 2 && hour < 8) return "london";
+  if (hour >= 8 && hour < 12) return "new_york_am";
+  if (hour >= 12 && hour < 17) return "new_york_pm";
+  return "overnight";
+}
+
+// Strip expiry code from contract: MNQH6 → MNQ, NQZ24 → NQ
+function stripExpiry(contract: string): string {
+  return contract.trim().replace(/[A-Z]\d{1,2}$/, "");
+}
+
+// ── Weighted-average helpers ───────────────────────────────────────────────
+
+function wavgPrice(legs: Leg[]): number {
+  const totalQty = legs.reduce((s, l) => s + l.qty, 0);
+  return legs.reduce((s, l) => s + l.qty * l.price, 0) / totalQty;
+}
+
+function sumQty(legs: Leg[]): number {
+  return legs.reduce((s, l) => s + l.qty, 0);
+}
+
+// ── Core parsing ───────────────────────────────────────────────────────────
+
+/**
+ * Reconstruct complete trades from sorted fills for a single contract root
+ * using running-position tracking.
+ *
+ * Each time position returns to 0 a complete trade is emitted.
+ * Opening legs = legs that build the position; closing legs = legs that
+ * reduce it back to 0.  Scales-in (multiple opening fills) and scales-out
+ * (multiple closing fills) are both handled correctly.
+ */
+function reconstructContractTrades(
+  fills: ParsedFill[],
+  product: string
+): PreviewTrade[] {
+  const trades: PreviewTrade[] = [];
+
+  let position = 0;
+  let direction: TradeDirection = "long";
+  let openingLegs: Leg[] = [];
+  let closingLegs: Leg[] = [];
+
+  for (const fill of fills) {
+    const isBuy = fill.side === "B";
+    const signedQty = isBuy ? fill.filledQty : -fill.filledQty;
+    const leg: Leg = {
+      qty: fill.filledQty,
+      price: fill.avgPrice,
+      fillTime: fill.fillTime,
+      fillTimeRaw: fill.fillTimeRaw,
+    };
+
+    if (position === 0) {
+      // Start of a new trade
+      direction = isBuy ? "long" : "short";
+      openingLegs = [leg];
+      closingLegs = [];
+    } else {
+      const isScalingIn =
+        (position > 0 && isBuy) || (position < 0 && !isBuy);
+      if (isScalingIn) {
+        openingLegs.push(leg);
+      } else {
+        closingLegs.push(leg);
+      }
+    }
+
+    position += signedQty;
+    // Clamp floating-point drift to zero
+    if (Math.abs(position) < 0.0001) position = 0;
+
+    if (position === 0 && openingLegs.length > 0 && closingLegs.length > 0) {
+      const entryPrice = wavgPrice(openingLegs);
+      const exitPrice = wavgPrice(closingLegs);
+      const qty = sumQty(openingLegs);
+      const priceDiff =
+        direction === "long"
+          ? exitPrice - entryPrice
+          : entryPrice - exitPrice;
+      const grossPnl = Math.round(calcPnl(product, priceDiff, qty) * 100) / 100;
+
+      try {
+        trades.push({
+          instrument: mapInstrument(product),
+          direction,
+          entry_price: Math.round(entryPrice * 100000) / 100000,
+          exit_price: Math.round(exitPrice * 100000) / 100000,
+          contracts: qty,
+          entry_time: fillTimeToISO(openingLegs[0].fillTimeRaw),
+          exit_time: fillTimeToISO(closingLegs[closingLegs.length - 1].fillTimeRaw),
+          gross_pnl: grossPnl,
+          session: detectSession(openingLegs[0].fillTime.getHours()),
+          product,
+        });
+      } catch {
+        // Skip unrecognised instruments silently
+      }
+
+      openingLegs = [];
+      closingLegs = [];
+    }
+  }
+
+  return trades;
+}
 
 function parseCsvToTrades(rows: CsvRow[]): PreviewTrade[] {
-  // 1. Filter: keep Filled rows (Market, Limit, Stop); skip Cancelled/Working
+  // 1. Collect all Filled rows (Market / Limit / Stop); skip Cancelled / Working
   const fills: ParsedFill[] = [];
   for (const row of rows) {
     const status = row.Status?.trim();
@@ -116,19 +225,19 @@ function parseCsvToTrades(rows: CsvRow[]): PreviewTrade[] {
     const type = row.Type?.trim();
     if (type !== "Market" && type !== "Limit" && type !== "Stop") continue;
 
-    const side = row["B/S"].trim() as "B" | "S";
+    const side = row["B/S"]?.trim() as "B" | "S";
     if (side !== "B" && side !== "S") continue;
 
-    const product = row.Product.trim();
-    const contract = stripExpiry(row.Contract.trim());
+    const product = row.Product?.trim();
+    if (!product) continue;
+
     const avgPrice = parseFloat(row.avgPrice);
     const filledQty = parseFloat(row.filledQty);
     if (isNaN(avgPrice) || isNaN(filledQty) || filledQty <= 0) continue;
 
     fills.push({
-      orderId: row.orderId,
       side,
-      contract,
+      contract: stripExpiry(row.Contract?.trim() ?? product),
       product,
       avgPrice,
       filledQty,
@@ -137,75 +246,34 @@ function parseCsvToTrades(rows: CsvRow[]): PreviewTrade[] {
     });
   }
 
-  // 2. Sort by fill time ascending
+  // 2. Sort all fills by fill time ascending
   fills.sort((a, b) => a.fillTime.getTime() - b.fillTime.getTime());
 
-  // 3. Group by contract root and pair fills
+  // 3. Group by contract root (stripped expiry)
   const byContract = new Map<string, ParsedFill[]>();
   for (const fill of fills) {
     if (!byContract.has(fill.contract)) byContract.set(fill.contract, []);
     byContract.get(fill.contract)!.push(fill);
   }
 
+  // 4. Reconstruct trades via position tracking, per contract
   const trades: PreviewTrade[] = [];
-
   for (const contractFills of Array.from(byContract.values())) {
-    const unmatched: ParsedFill[] = [];
-
-    for (const fill of contractFills) {
-      // Find oldest unmatched fill with opposing direction and same qty
-      const idx = unmatched.findIndex(
-        (u) => u.side !== fill.side && u.filledQty === fill.filledQty
-      );
-
-      if (idx !== -1) {
-        const match = unmatched.splice(idx, 1)[0];
-        // Determine entry vs exit (chronological order already guaranteed)
-        const entry = match;
-        const exit = fill;
-
-        const direction: TradeDirection = entry.side === "B" ? "long" : "short";
-        const pointValue = getPointValue(entry.product);
-        const priceDiff =
-          direction === "long"
-            ? exit.avgPrice - entry.avgPrice
-            : entry.avgPrice - exit.avgPrice;
-        const grossPnl =
-          Math.round(priceDiff * entry.filledQty * pointValue * 100) / 100;
-
-        const entryDate = entry.fillTime;
-        const session = detectSession(entryDate.getHours());
-
-        try {
-          const instrument = mapInstrument(entry.product);
-          trades.push({
-            instrument,
-            direction,
-            entry_price: entry.avgPrice,
-            exit_price: exit.avgPrice,
-            contracts: entry.filledQty,
-            entry_time: fillTimeToISO(entry.fillTimeRaw),
-            exit_time: fillTimeToISO(exit.fillTimeRaw),
-            gross_pnl: grossPnl,
-            session,
-            product: entry.product,
-          });
-        } catch {
-          // Skip unknown instruments silently
-        }
-      } else {
-        unmatched.push(fill);
-      }
-    }
+    // All fills in a group share the same product (contract root = product root)
+    const product = contractFills[0].product;
+    trades.push(...reconstructContractTrades(contractFills, product));
   }
 
-  // Sort result by entry time ascending
+  // 5. Sort result chronologically
   trades.sort((a, b) => a.entry_time.localeCompare(b.entry_time));
   return trades;
 }
 
+// ── Map to DB input ────────────────────────────────────────────────────────
+
 function toImportInput(t: PreviewTrade): TradeImportInput {
-  const outcome = t.gross_pnl > 0 ? "win" : t.gross_pnl < 0 ? "loss" : "break_even";
+  const outcome =
+    t.gross_pnl > 0 ? "win" : t.gross_pnl < 0 ? "loss" : "break_even";
   return {
     instrument: t.instrument,
     direction: t.direction,
@@ -281,7 +349,9 @@ export function TradovateImport({ onImported, onClose }: Props) {
           const trades = parseCsvToTrades(results.data);
           if (trades.length === 0) {
             setParseError(
-              "No completed trades found. Make sure the CSV contains Filled rows (Market, Limit, or Stop orders) with a recognisable Contract and Product."
+              "No completed trades found. Check that the CSV has Filled rows " +
+              "(Market / Limit / Stop) where both an opening and a closing fill exist " +
+              "for the same contract."
             );
             return;
           }
@@ -296,7 +366,6 @@ export function TradovateImport({ onImported, onClose }: Props) {
       },
     });
 
-    // Reset input so the same file can be re-selected
     e.target.value = "";
   }
 
@@ -307,8 +376,6 @@ export function TradovateImport({ onImported, onClose }: Props) {
       const res = await importTrades(inputs);
       setResult(res);
       setStep("done");
-      // We can't easily return the new Trade objects without a re-fetch,
-      // so we signal the parent to refresh with an empty array trigger
       onImported([]);
     } catch (err) {
       setParseError(err instanceof Error ? err.message : "Import failed");
@@ -327,17 +394,13 @@ export function TradovateImport({ onImported, onClose }: Props) {
               Upload an order history CSV exported from Tradovate
             </p>
           </div>
-          <button
-            onClick={onClose}
-            className="rounded-md p-1.5 hover:bg-accent"
-          >
+          <button onClick={onClose} className="rounded-md p-1.5 hover:bg-accent">
             <X className="h-4 w-4" />
           </button>
         </div>
 
         {/* Body */}
         <div className="px-6 py-5">
-          {/* Error banner */}
           {parseError && (
             <div className="mb-4 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
               <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -353,7 +416,8 @@ export function TradovateImport({ onImported, onClose }: Props) {
               <div className="text-center">
                 <p className="font-medium">Choose a Tradovate order history CSV</p>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Only Filled + Market orders are processed. Paired fills become trades.
+                  All Filled orders (Market, Limit, Stop) are processed. Scales-in and
+                  scales-out are reconstructed into single trades via position tracking.
                 </p>
               </div>
               <button
@@ -375,15 +439,17 @@ export function TradovateImport({ onImported, onClose }: Props) {
           {step === "preview" && (
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                Found <span className="font-medium text-foreground">{preview.length}</span> reconstructed{" "}
-                trade{preview.length !== 1 ? "s" : ""}. Review below, then confirm to save.
+                Found{" "}
+                <span className="font-medium text-foreground">{preview.length}</span>{" "}
+                reconstructed trade{preview.length !== 1 ? "s" : ""}. Review below,
+                then confirm to save.
               </p>
 
               <div className="overflow-x-auto rounded-lg border">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b bg-muted/40">
-                      {["Date", "Instrument", "Dir", "Entry", "Exit", "Size", "P&L", "Session"].map(
+                      {["Date", "Instrument", "Dir", "Entry", "Exit", "Qty", "P&L", "Session"].map(
                         (h) => (
                           <th
                             key={h}
@@ -420,8 +486,12 @@ export function TradovateImport({ onImported, onClose }: Props) {
                             {t.direction === "long" ? "Long" : "Short"}
                           </span>
                         </td>
-                        <td className="px-3 py-2 tabular-nums">{t.entry_price.toLocaleString()}</td>
-                        <td className="px-3 py-2 tabular-nums">{t.exit_price.toLocaleString()}</td>
+                        <td className="px-3 py-2 tabular-nums">
+                          {t.entry_price.toLocaleString(undefined, { maximumFractionDigits: 5 })}
+                        </td>
+                        <td className="px-3 py-2 tabular-nums">
+                          {t.exit_price.toLocaleString(undefined, { maximumFractionDigits: 5 })}
+                        </td>
                         <td className="px-3 py-2 tabular-nums">{t.contracts}</td>
                         <td
                           className={cn(
@@ -431,8 +501,8 @@ export function TradovateImport({ onImported, onClose }: Props) {
                         >
                           {formatMoney(t.gross_pnl)}
                         </td>
-                        <td className="px-3 py-2 text-xs capitalize text-muted-foreground">
-                          {t.session.replace("_", " ")}
+                        <td className="px-3 py-2 text-xs capitalize text-muted-foreground whitespace-nowrap">
+                          {t.session.replace(/_/g, " ")}
                         </td>
                       </tr>
                     ))}
@@ -440,8 +510,8 @@ export function TradovateImport({ onImported, onClose }: Props) {
                 </table>
               </div>
 
-              {/* Summary row */}
-              <div className="flex items-center gap-6 rounded-lg border bg-muted/30 px-4 py-3 text-sm">
+              {/* Summary */}
+              <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border bg-muted/30 px-4 py-3 text-sm">
                 <span className="text-muted-foreground">
                   Total P&L:{" "}
                   <span
@@ -508,10 +578,7 @@ export function TradovateImport({ onImported, onClose }: Props) {
           {step === "preview" && (
             <>
               <button
-                onClick={() => {
-                  setStep("idle");
-                  setPreview([]);
-                }}
+                onClick={() => { setStep("idle"); setPreview([]); }}
                 className="rounded-md border px-4 py-2 text-sm font-medium hover:bg-accent"
               >
                 Back
