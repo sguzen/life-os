@@ -46,7 +46,6 @@ export async function POST(req: Request) {
     return Response.json({ error: 'Unsupported image type. Use JPEG, PNG, or WebP.' }, { status: 400 })
   }
 
-  // 10 MB limit
   if (file.size > 10 * 1024 * 1024) {
     return Response.json({ error: 'Image too large. Max 10 MB.' }, { status: 400 })
   }
@@ -55,33 +54,10 @@ export async function POST(req: Request) {
   const base64 = Buffer.from(bytes).toString('base64')
   const mimeType = file.type as 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif'
 
-<<<<<<< HEAD
-  const result = await generateText({
-    model: google('gemini-2.5-flash'),
-    messages: [
-      {
-        role: 'user',
-        content: [
-          {
-            type: 'image',
-            image: base64,
-            mimeType,
-          },
-          {
-            type: 'text',
-            text: EXTRACTION_PROMPT,
-          },
-        ],
-      },
-    ],
-    maxOutputTokens: 512,
-    temperature: 0.1,
-  })
-=======
   let result: Awaited<ReturnType<typeof generateText>>
   try {
     result = await generateText({
-      model: google('gemini-1.5-flash-latest'),
+      model: google('gemini-2.5-flash'),
       messages: [
         {
           role: 'user',
@@ -105,9 +81,7 @@ export async function POST(req: Request) {
     const msg = err instanceof Error ? err.message : 'Gemini API error'
     return Response.json({ error: msg }, { status: 502 })
   }
->>>>>>> 07a404eabe60480bf7756e4c0bd0b60a1e76ca94
 
-  // Strip any markdown code fences Gemini may add, then extract the first JSON object
   const stripped = result.text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
   const jsonMatch = stripped.match(/\{[\s\S]*\}/)
   const raw = jsonMatch ? jsonMatch[0] : stripped
@@ -119,7 +93,6 @@ export async function POST(req: Request) {
     return Response.json({ error: 'Failed to parse AI response', raw: result.text }, { status: 422 })
   }
 
-  // Validate shape and clamp confidence values
   function field(data: unknown, validValues?: string[]) {
     if (!data || typeof data !== 'object') return { value: null, confidence: 0 }
     const d = data as Record<string, unknown>
