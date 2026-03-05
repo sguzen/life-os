@@ -1,7 +1,7 @@
 "use client";
 
 import * as Dialog from "@radix-ui/react-dialog";
-import { useState, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { X, Upload, Loader2, ImageIcon, CheckCircle2, AlertTriangle } from "lucide-react";
 import {
   tradeSchema,
@@ -160,8 +160,8 @@ export function TradeForm({ open, onClose, onSaved, initial, propAccounts, strat
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  function handleOpen(val: boolean) {
-    if (val) {
+  useEffect(() => {
+    if (open) {
       setForm(initial ? fromTrade(initial) : emptyForm());
       setErrors({});
       setServerError(null);
@@ -173,6 +173,9 @@ export function TradeForm({ open, onClose, onSaved, initial, propAccounts, strat
       setAiResult(null);
       setAiConfidence({});
     }
+  }, [open, initial]);
+
+  function handleOpen(val: boolean) {
     if (!val) onClose();
   }
 

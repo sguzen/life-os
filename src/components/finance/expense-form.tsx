@@ -1,7 +1,7 @@
 "use client";
 
 import * as Dialog from "@radix-ui/react-dialog";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { X } from "lucide-react";
 import {
   monthlyExpenseSchema,
@@ -53,11 +53,14 @@ export function ExpenseForm({
   >({});
   const [submitting, setSubmitting] = useState(false);
 
-  function handleOpenChange(val: boolean) {
-    if (val) {
+  useEffect(() => {
+    if (open) {
       setForm(expense ? fromExpense(expense) : defaultValues);
       setErrors({});
     }
+  }, [open, expense]);
+
+  function handleOpenChange(val: boolean) {
     onOpenChange(val);
   }
 

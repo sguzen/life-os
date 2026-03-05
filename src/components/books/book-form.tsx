@@ -1,7 +1,7 @@
 "use client";
 
 import * as Dialog from "@radix-ui/react-dialog";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { X } from "lucide-react";
 import { bookSchema, type BookFormData } from "@/lib/validations/books";
 import type { Book } from "@/lib/types";
@@ -52,11 +52,14 @@ export function BookForm({ open, onOpenChange, book, onSubmit }: BookFormProps) 
   const [errors, setErrors] = useState<Partial<Record<keyof BookFormData, string>>>({});
   const [submitting, setSubmitting] = useState(false);
 
-  function handleOpenChange(val: boolean) {
-    if (val) {
+  useEffect(() => {
+    if (open) {
       setForm(defaultForm(book));
       setErrors({});
     }
+  }, [open, book]);
+
+  function handleOpenChange(val: boolean) {
     onOpenChange(val);
   }
 

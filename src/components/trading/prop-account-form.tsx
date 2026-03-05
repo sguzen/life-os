@@ -1,7 +1,7 @@
 "use client";
 
 import * as Dialog from "@radix-ui/react-dialog";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { X } from "lucide-react";
 import {
   propAccountSchema,
@@ -60,12 +60,15 @@ export function PropAccountForm({ open, onClose, onSaved, initial }: Props) {
   const [saving, setSaving] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
 
-  function handleOpen(val: boolean) {
-    if (val) {
+  useEffect(() => {
+    if (open) {
       setForm(initial ? fromAccount(initial) : emptyForm());
       setErrors({});
       setServerError(null);
     }
+  }, [open, initial]);
+
+  function handleOpen(val: boolean) {
     if (!val) onClose();
   }
 
