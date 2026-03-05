@@ -234,4 +234,111 @@ Logs prop firm payout events; used to compute average monthly income for project
 
 ---
 
-_Future tables: runs, books, projects_
+---
+
+## P4 — Running / Garmin Tables
+
+### `running_activities`
+One row per uploaded Garmin .fit activity.
+
+| Column                    | Type        | Notes                                                     |
+|---------------------------|-------------|-----------------------------------------------------------|
+| id                        | uuid (PK)   | `gen_random_uuid()`                                       |
+| user_id                   | uuid        | FK → auth.users(id)                                      |
+| started_at                | timestamptz | activity start time                                       |
+| name                      | text        | auto-set from filename; editable                          |
+| workout_type              | workout_type| ENUM: easy, long_run, tempo, threshold, interval, recovery, race, other |
+| distance_meters           | numeric     | total distance                                            |
+| duration_seconds          | int         | elapsed time in seconds                                   |
+| avg_pace_sec_per_km       | numeric     | computed from avg_speed                                   |
+| prescribed_pace_sec_per_km| numeric     | optional; set manually for pace comparison                |
+| avg_hr                    | int         | average heart rate (bpm)                                  |
+| max_hr                    | int         | max heart rate (bpm)                                      |
+| resting_hr                | int         | overnight/morning resting HR if present in .fit           |
+| elevation_gain_m          | numeric     | total ascent (m)                                          |
+| elevation_loss_m          | numeric     | total descent (m)                                         |
+| avg_cadence               | numeric     | full steps per minute (Garmin raw × 2)                    |
+| avg_stride_length_m       | numeric     | optional                                                  |
+| calories                  | int         | optional                                                  |
+| notes                     | text        | optional user notes                                       |
+| fit_filename              | text        | original uploaded filename                                |
+| created_at                | timestamptz |                                                           |
+| updated_at                | timestamptz | auto-updated via trigger                                  |
+
+**RLS**: users manage only their own rows.
+**Indexes**: `(user_id, started_at DESC)`
+
+---
+
+### `running_laps`
+One row per lap within a running activity.
+
+| Column              | Type        | Notes                              |
+|---------------------|-------------|------------------------------------|
+| id                  | uuid (PK)   | `gen_random_uuid()`                |
+| user_id             | uuid        | FK → auth.users(id)               |
+| activity_id         | uuid        | FK → running_activities(id) CASCADE|
+| lap_number          | int         | 1-indexed                          |
+| start_time          | timestamptz | optional                           |
+| distance_meters     | numeric     |                                    |
+| duration_seconds    | int         |                                    |
+| avg_pace_sec_per_km | numeric     |                                    |
+| avg_hr              | int         |                                    |
+| max_hr              | int         |                                    |
+| elevation_gain_m    | numeric     |                                    |
+| avg_cadence         | numeric     | full SPM                           |
+| created_at          | timestamptz |                                    |
+
+**Constraint**: `UNIQUE (activity_id, lap_number)`
+**RLS**: users manage only their own rows.
+
+---
+
+### `resting_hr_logs`
+Daily resting HR extracted from Garmin or logged manually. Spike flag set when HR ≥ 7-day avg + 5 bpm.
+
+| Column      | Type        | Notes                                   |
+|-------------|-------------|-----------------------------------------|
+| id          | uuid (PK)   | `gen_random_uuid()`                     |
+| user_id     | uuid        | FK → auth.users(id)                    |
+| logged_date | date        | calendar day                            |
+| resting_hr  | int         | bpm                                     |
+| source      | text        | `'garmin'` or `'manual'`               |
+| is_spike    | boolean     | true when ≥5 bpm above 7-day rolling avg|
+| notes       | text        | optional                                |
+| created_at  | timestamptz |                                         |
+
+**Constraint**: `UNIQUE (user_id, logged_date)`
+**Baseline**: 42–49 bpm. Spike threshold: +5 bpm.
+**RLS**: users manage only their own rows.
+
+---
+
+### `race_targets`
+Upcoming and completed races with pace targets.
+
+| Column                 | Type        | Notes                                        |
+|------------------------|-------------|----------------------------------------------|
+| id                     | uuid (PK)   | `gen_random_uuid()`                          |
+| user_id                | uuid        | FK → auth.users(id)                         |
+| race_name              | text        |                                              |
+| location               | text        | optional                                     |
+| race_date              | date        |                                              |
+| distance_km            | numeric     |                                              |
+| target_time_seconds    | int         | total target finish time                     |
+| target_pace_sec_per_km | numeric     | GENERATED: target_time_seconds / distance_km |
+| actual_time_seconds    | int         | optional; filled after race                  |
+| activity_id            | uuid        | FK → running_activities(id) SET NULL         |
+| notes                  | text        | optional                                     |
+| created_at             | timestamptz |                                              |
+| updated_at             | timestamptz | auto-updated via trigger                     |
+
+**Known races**:
+- Limassol Half Marathon — 2026-03-22 — 1:44:30 target (~4:57/km)
+- Belgrade Marathon — 2026-04-19 — 3:32:00 target (~5:01/km)
+
+**RLS**: users manage only their own rows.
+
+---
+
+_Future tables: books, projects_
