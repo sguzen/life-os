@@ -78,8 +78,10 @@ export async function POST(req: Request) {
     temperature: 0.1,
   })
 
-  // Strip any markdown code fences Gemini may add
-  const raw = result.text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
+  // Strip any markdown code fences Gemini may add, then extract the first JSON object
+  const stripped = result.text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
+  const jsonMatch = stripped.match(/\{[\s\S]*\}/)
+  const raw = jsonMatch ? jsonMatch[0] : stripped
 
   let parsed: unknown
   try {
