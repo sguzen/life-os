@@ -80,7 +80,7 @@ export async function POST(req: Request) {
   const system = `${TRADING_COACH_SYSTEM_PROMPT}\n\n---\n\n${contextBlock}`
 
   const result = streamText({
-    model: google('gemini-2.0-flash'),
+    model: google('gemini-1.5-flash'),
     system,
     messages: [
       {
