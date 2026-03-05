@@ -1,8 +1,10 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { Plus, SlidersHorizontal, TrendingUp, TrendingDown } from "lucide-react";
+import { Plus, SlidersHorizontal, TrendingUp, TrendingDown, FileUp } from "lucide-react";
 import { TradeForm } from "./trade-form";
+import { TradovateImport } from "./tradovate-import";
+import { getTrades } from "@/lib/supabase/trading";
 import { INSTRUMENTS } from "@/lib/validations/trading";
 import { cn } from "@/lib/utils";
 import type { Trade, PropAccount, Strategy, Instrument, TradeOutcome } from "@/lib/types";
@@ -58,6 +60,7 @@ function OutcomeChip({ outcome }: { outcome: Trade["outcome"] }) {
 
 export function TradesList({ trades, propAccounts, strategies, onTradesChange, onSelectTrade }: Props) {
   const [formOpen, setFormOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState<Filters>({
     instrument: "",
@@ -75,6 +78,13 @@ export function TradesList({ trades, propAccounts, strategies, onTradesChange, o
     } else {
       onTradesChange([saved, ...trades]);
     }
+  }
+
+  async function handleImported() {
+    // Re-fetch full trade list after import to pick up newly inserted rows
+    const refreshed = await getTrades();
+    onTradesChange(refreshed);
+    setImportOpen(false);
   }
 
   const filtered = useMemo(() => {
@@ -123,6 +133,13 @@ export function TradesList({ trades, propAccounts, strategies, onTradesChange, o
           >
             <SlidersHorizontal className="h-3.5 w-3.5" />
             Filters
+          </button>
+          <button
+            onClick={() => setImportOpen(true)}
+            className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent"
+          >
+            <FileUp className="h-3.5 w-3.5" />
+            Import CSV
           </button>
           <button
             onClick={() => setFormOpen(true)}
@@ -340,6 +357,13 @@ export function TradesList({ trades, propAccounts, strategies, onTradesChange, o
         propAccounts={propAccounts}
         strategies={strategies}
       />
+
+      {importOpen && (
+        <TradovateImport
+          onImported={handleImported}
+          onClose={() => setImportOpen(false)}
+        />
+      )}
     </div>
   );
 }

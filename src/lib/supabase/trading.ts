@@ -216,6 +216,50 @@ export async function deleteTrade(id: string): Promise<void> {
   if (error) throw error;
 }
 
+export type TradeImportInput = Omit<
+  Trade,
+  "id" | "user_id" | "net_pnl" | "created_at" | "updated_at" | "prop_accounts" | "strategies"
+>;
+
+export interface ImportResult {
+  imported: number;
+  skipped: number;
+}
+
+export async function importTrades(inputs: TradeImportInput[]): Promise<ImportResult> {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Not authenticated");
+
+  // Fetch existing trades to check duplicates by entry_time + instrument + entry_price
+  const { data: existing, error: fetchError } = await supabase
+    .from("trades")
+    .select("entry_time, instrument, entry_price")
+    .eq("user_id", user.id);
+  if (fetchError) throw fetchError;
+
+  const existingKeys = new Set(
+    (existing ?? []).map((t) => `${t.entry_time}|${t.instrument}|${t.entry_price}`)
+  );
+
+  const toInsert = inputs.filter((t) => {
+    const key = `${t.entry_time}|${t.instrument}|${t.entry_price}`;
+    return !existingKeys.has(key);
+  });
+
+  if (toInsert.length === 0) {
+    return { imported: 0, skipped: inputs.length };
+  }
+
+  const { error } = await supabase
+    .from("trades")
+    .insert(toInsert.map((t) => ({ ...t, user_id: user.id })));
+
+  if (error) throw error;
+
+  return { imported: toInsert.length, skipped: inputs.length - toInsert.length };
+}
+
 // ============================================================
 // Trading Session Journal
 // ============================================================
