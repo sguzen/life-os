@@ -1,5 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { TradingView } from "@/components/trading/trading-view";
+import { TradingCoach } from "@/components/ai/trading-coach";
+import { BulkTradeAnalysis } from "@/components/ai/bulk-trade-analysis";
 import type { Trade, PropAccount, Strategy } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -41,6 +43,13 @@ export default async function TradingPage() {
           Log trades, track prop accounts, manage strategies, and review your performance.
         </p>
       </div>
+
+      {/* P5-04/06: AI Coaching */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        <TradingCoach />
+        <BulkTradeAnalysis />
+      </div>
+
       <TradingView
         initialTrades={trades}
         initialAccounts={accounts}
