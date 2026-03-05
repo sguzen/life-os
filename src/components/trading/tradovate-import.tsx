@@ -74,25 +74,44 @@ function mapInstrument(product: string): Instrument {
 
 // ── Time helpers ───────────────────────────────────────────────────────────
 
-// Parse Tradovate Fill Time "M/D/YYYY H:MM:SS" → Date (treated as local/EST)
+const CYPRUS_TZ = "Asia/Nicosia";  // Tradovate timestamps are in Cyprus time
+const NY_TZ      = "America/New_York";
+
+/**
+ * Parse a Tradovate "M/D/YYYY H:MM:SS" timestamp (Cyprus local time)
+ * and return the true UTC Date.
+ *
+ * Strategy: treat the raw string as if it were UTC (asUtc), ask Intl what
+ * Cyprus local time that UTC moment corresponds to, compute the offset, then
+ * subtract it so we get the real UTC for the given Cyprus local time.
+ * sv-SE locale gives a stable "YYYY-MM-DD HH:MM:SS" format across all browsers.
+ */
 function parseFillTime(raw: string): Date {
   const t = raw.trim();
   const [datePart, timePart] = t.split(" ");
   const [m, d, y] = datePart.split("/");
-  return new Date(`${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}T${timePart}`);
+  const asUtc = new Date(`${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}T${timePart}Z`);
+  // What Cyprus says this UTC moment is (e.g. "2024-01-15 11:30:00" when UTC is 09:30)
+  const cyprusLocalStr = asUtc.toLocaleString("sv-SE", { timeZone: CYPRUS_TZ });
+  const cyprusMs = new Date(cyprusLocalStr.replace(" ", "T") + "Z").getTime();
+  const offsetMs = cyprusMs - asUtc.getTime(); // how many ms ahead Cyprus is
+  return new Date(asUtc.getTime() - offsetMs); // true UTC
 }
 
-function fillTimeToISO(raw: string): string {
-  const t = raw.trim();
-  const [datePart, timePart] = t.split(" ");
-  const [m, d, y] = datePart.split("/");
-  return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}T${timePart}`;
+/** Format a UTC Date as an ISO string in New York local time (no Z — stored as-is in timestamptz). */
+function toNYIso(d: Date): string {
+  // sv-SE gives "YYYY-MM-DD HH:MM:SS" in the requested timezone — reliable cross-browser
+  return d.toLocaleString("sv-SE", { timeZone: NY_TZ }).replace(" ", "T");
 }
 
-function detectSession(hour: number): TradingSession {
-  if (hour >= 2  && hour < 8)  return "london";
-  if (hour >= 8  && hour < 12) return "new_york_am";
-  if (hour >= 12 && hour < 17) return "new_york_pm";
+function detectSession(utcDate: Date): TradingSession {
+  const nyHour = parseInt(
+    new Intl.DateTimeFormat("en-US", { timeZone: NY_TZ, hour: "numeric", hour12: false }).format(utcDate),
+    10
+  );
+  if (nyHour >= 2  && nyHour < 8)  return "london";
+  if (nyHour >= 8  && nyHour < 12) return "new_york_am";
+  if (nyHour >= 12 && nyHour < 17) return "new_york_pm";
   return "overnight";
 }
 
@@ -107,8 +126,7 @@ interface PositionEntry {
   sign: 1 | -1;   // +1 long, -1 short
   qty: number;
   price: number;
-  fillTime: Date;
-  fillTimeRaw: string;
+  fillTime: Date; // UTC
 }
 
 interface CompletedLeg {
@@ -117,10 +135,8 @@ interface CompletedLeg {
   entryPrice: number;
   exitPrice: number;
   qty: number;
-  entryTime: Date;
-  entryTimeRaw: string;
-  exitTime: Date;
-  exitTimeRaw: string;
+  entryTime: Date; // UTC
+  exitTime: Date;  // UTC
 }
 
 /**
@@ -136,8 +152,7 @@ function runFifo(rows: CsvRow[]): CompletedLeg[] {
     sign: 1 | -1;
     qty: number;
     price: number;
-    fillTime: Date;
-    fillTimeRaw: string;
+    fillTime: Date; // UTC
   };
 
   const fills: FillRow[] = [];
@@ -164,8 +179,7 @@ function runFifo(rows: CsvRow[]): CompletedLeg[] {
       sign,
       qty,
       price: avgPrice,
-      fillTime: parseFillTime(row["Fill Time"]),
-      fillTimeRaw: row["Fill Time"],
+      fillTime: parseFillTime(row["Fill Time"]), // → UTC
     });
   }
 
@@ -177,7 +191,7 @@ function runFifo(rows: CsvRow[]): CompletedLeg[] {
   const completed: CompletedLeg[] = [];
 
   for (const fill of fills) {
-    const { product, sign, price, fillTime, fillTimeRaw } = fill;
+    const { product, sign, price, fillTime } = fill;
     let remaining = fill.qty;
 
     if (!positions[product]) positions[product] = [];
@@ -203,9 +217,7 @@ function runFifo(rows: CsvRow[]): CompletedLeg[] {
         exitPrice: price,
         qty: closeQty,
         entryTime: top.fillTime,
-        entryTimeRaw: top.fillTimeRaw,
         exitTime: fillTime,
-        exitTimeRaw: fillTimeRaw,
       });
 
       if (top.qty < 0.0001) queue.shift(); // fully consumed
@@ -221,7 +233,7 @@ function runFifo(rows: CsvRow[]): CompletedLeg[] {
         last.price = merged;
         last.qty += remaining;
       } else {
-        queue.push({ sign, qty: remaining, price, fillTime, fillTimeRaw });
+        queue.push({ sign, qty: remaining, price, fillTime });
       }
     }
   }
@@ -263,10 +275,10 @@ function legsToPreview(legs: CompletedLeg[]): PreviewTrade[] {
       entry_price: Math.round(leg.entryPrice * 100000) / 100000,
       exit_price:  Math.round(leg.exitPrice  * 100000) / 100000,
       contracts:   leg.qty,
-      entry_time:  fillTimeToISO(leg.entryTimeRaw),
-      exit_time:   fillTimeToISO(leg.exitTimeRaw),
+      entry_time:  toNYIso(leg.entryTime),
+      exit_time:   toNYIso(leg.exitTime),
       gross_pnl:   pnl,
-      session:     detectSession(leg.entryTime.getHours()),
+      session:     detectSession(leg.entryTime),
     });
   }
   trades.sort((a, b) => a.entry_time.localeCompare(b.entry_time));
