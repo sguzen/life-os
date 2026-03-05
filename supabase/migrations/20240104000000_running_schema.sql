@@ -118,14 +118,24 @@ CREATE INDEX race_targets_user_date_idx
   ON race_targets (user_id, race_date ASC);
 
 -- ── Triggers (updated_at) ────────────────────────────────────
+-- Uses the same set_updated_at() function created in the habits migration.
+-- Redeclare with CREATE OR REPLACE so this migration is safe to run standalone.
+
+CREATE OR REPLACE FUNCTION public.set_updated_at()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$;
 
 CREATE TRIGGER set_updated_at_running_activities
   BEFORE UPDATE ON running_activities
-  FOR EACH ROW EXECUTE FUNCTION moddatetime(updated_at);
+  FOR EACH ROW EXECUTE PROCEDURE public.set_updated_at();
 
 CREATE TRIGGER set_updated_at_race_targets
   BEFORE UPDATE ON race_targets
-  FOR EACH ROW EXECUTE FUNCTION moddatetime(updated_at);
+  FOR EACH ROW EXECUTE PROCEDURE public.set_updated_at();
 
 -- ── Row Level Security ────────────────────────────────────────
 

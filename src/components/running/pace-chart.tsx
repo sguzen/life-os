@@ -4,7 +4,7 @@
 
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ReferenceLine, ResponsiveContainer, Legend, Cell,
+  ReferenceLine, ResponsiveContainer, Cell,
 } from 'recharts'
 import { formatPace } from '@/lib/running/format'
 import type { RunningLap } from '@/lib/types/running'

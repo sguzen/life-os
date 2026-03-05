@@ -131,8 +131,8 @@ export function PayoffChart({ debts, expenses, payouts }: PayoffChartProps) {
               width={42}
             />
             <Tooltip
-              formatter={(value: number) =>
-                [`$${value.toLocaleString()}`, "Balance"]
+              formatter={(value: number | undefined) =>
+                [`$${(value ?? 0).toLocaleString()}`, "Balance"]
               }
               contentStyle={{
                 borderRadius: "8px",

@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react";
 import { ChevronLeft, ChevronRight, Save } from "lucide-react";
 import {
-  tradingSessionSchema,
   type TradingSessionFormValues,
   MOOD_RATINGS,
 } from "@/lib/validations/trading";
@@ -105,7 +104,17 @@ export function SessionJournal() {
     setError(null);
     setSaved(false);
     try {
-      await upsertTradingSession({ ...form, session_date: date });
+      await upsertTradingSession({
+        ...form,
+        session_date: date,
+        pre_market_notes: form.pre_market_notes ?? null,
+        mood_before: form.mood_before ?? null,
+        plan: form.plan ?? null,
+        post_market_notes: form.post_market_notes ?? null,
+        mood_after: form.mood_after ?? null,
+        lessons: form.lessons ?? null,
+        followed_plan: form.followed_plan ?? null,
+      });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (err) {

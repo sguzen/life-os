@@ -34,7 +34,7 @@ export const SESSION_LABELS: Record<string, string> = {
 export const propAccountSchema = z.object({
   firm: z.enum(PROP_FIRMS),
   account_label: z.string().min(1, "Label is required").max(100),
-  account_size: z.number({ invalid_type_error: "Required" }).positive("Must be positive"),
+  account_size: z.number({ error: "Required" }).positive("Must be positive"),
   balance: z.number().nullable().optional(),
   daily_loss_limit: z.number().positive().nullable().optional(),
   max_drawdown: z.number().positive().nullable().optional(),
@@ -65,9 +65,9 @@ export type StrategyFormValues = z.infer<typeof strategySchema>;
 export const tradeSchema = z.object({
   instrument: z.enum(INSTRUMENTS),
   direction: z.enum(TRADE_DIRECTIONS),
-  entry_price: z.number({ invalid_type_error: "Required" }).positive(),
+  entry_price: z.number({ error: "Required" }).positive(),
   exit_price: z.number().positive().nullable().optional(),
-  contracts: z.number({ invalid_type_error: "Required" }).positive().default(1),
+  contracts: z.number({ error: "Required" }).positive().default(1),
   entry_time: z.string().min(1, "Entry time is required"),
   exit_time: z.string().nullable().optional(),
   gross_pnl: z.number().nullable().optional(),
