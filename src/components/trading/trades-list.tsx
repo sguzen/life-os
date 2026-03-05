@@ -1,10 +1,9 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { Plus, SlidersHorizontal, TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { Plus, SlidersHorizontal, TrendingUp, TrendingDown } from "lucide-react";
 import { TradeForm } from "./trade-form";
-import { INSTRUMENT_LABELS, SESSION_LABELS, INSTRUMENTS, TRADE_OUTCOMES, TRADING_SESSIONS } from "@/lib/validations/trading";
-import { deleteTrade } from "@/lib/supabase/trading";
+import { INSTRUMENTS } from "@/lib/validations/trading";
 import { cn } from "@/lib/utils";
 import type { Trade, PropAccount, Strategy, Instrument, TradeOutcome } from "@/lib/types";
 
@@ -218,7 +217,7 @@ export function TradesList({ trades, propAccounts, strategies, onTradesChange, o
         <div className="rounded-xl border border-dashed p-8 text-center text-muted-foreground">
           <p className="text-sm">{trades.length === 0 ? "No trades logged yet." : "No trades match your filters."}</p>
           {trades.length === 0 && (
-            <p className="text-xs mt-1">Click "Log Trade" to record your first trade.</p>
+            <p className="text-xs mt-1">Click &ldquo;Log Trade&rdquo; to record your first trade.</p>
           )}
         </div>
       ) : (

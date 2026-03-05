@@ -5,7 +5,6 @@ import { Plus, Pencil, Trash2, BookOpen, CheckCircle2 } from "lucide-react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { StrategyForm } from "./strategy-form";
 import { deleteStrategy } from "@/lib/supabase/trading";
-import { INSTRUMENT_LABELS } from "@/lib/validations/trading";
 import { cn } from "@/lib/utils";
 import type { Strategy } from "@/lib/types";
 

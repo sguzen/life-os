@@ -102,7 +102,7 @@ export function TradeDetail({ trade, propAccounts, strategies, onClose, onUpdate
                 {outcomeLabels[trade.outcome]}
               </span>
               {trade.is_reviewed && (
-                <CheckCircle2 className="h-4 w-4 text-emerald-500" title="Reviewed" />
+                <CheckCircle2 className="h-4 w-4 text-emerald-500" aria-label="Reviewed" />
               )}
             </div>
             <div className="flex items-center gap-1">

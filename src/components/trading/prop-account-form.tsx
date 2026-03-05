@@ -92,9 +92,18 @@ export function PropAccountForm({ open, onClose, onSaved, initial }: Props) {
 
     setSaving(true);
     try {
+      const d = result.data
+      const payload = {
+        ...d,
+        balance: d.balance ?? null,
+        daily_loss_limit: d.daily_loss_limit ?? null,
+        max_drawdown: d.max_drawdown ?? null,
+        profit_target: d.profit_target ?? null,
+        notes: d.notes ?? null,
+      }
       const saved = initial
-        ? await updatePropAccount(initial.id, result.data)
-        : await createPropAccount(result.data);
+        ? await updatePropAccount(initial.id, payload)
+        : await createPropAccount(payload);
       onSaved(saved);
       onClose();
     } catch (err) {

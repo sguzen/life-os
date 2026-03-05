@@ -3,8 +3,7 @@
 // P4-06: Race tracker — upcoming and completed races
 // Seeded with: Belgrade April 19 (42.2 km, 3:32:00 target) and Limassol March 22 (21.1 km, 1:44:30 target)
 
-import { useState } from 'react'
-import { Flag, Plus, ChevronRight, CheckCircle2, Clock, MapPin } from 'lucide-react'
+import { Flag, Plus, CheckCircle2, Clock, MapPin } from 'lucide-react'
 import { formatPace, formatDuration, daysUntil } from '@/lib/running/format'
 import type { RaceTarget } from '@/lib/types/running'
 
@@ -13,10 +12,6 @@ interface RaceTrackerProps {
   onAddRace?: () => void
 }
 
-function progressPercent(target: RaceTarget): number | null {
-  if (!target.actual_time_seconds) return null
-  return Math.round((target.target_time_seconds / target.actual_time_seconds) * 100)
-}
 
 function RaceCard({ race }: { race: RaceTarget }) {
   const days = daysUntil(race.race_date)

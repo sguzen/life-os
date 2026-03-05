@@ -46,9 +46,6 @@ function localInputToISO(val: string): string | null {
   return new Date(val).toISOString();
 }
 
-function nowLocalInput(): string {
-  return toLocalDateTimeInput(new Date().toISOString());
-}
 
 function emptyForm(): TradeFormValues {
   return {
@@ -166,9 +163,14 @@ export function TradeForm({ open, onClose, onSaved, initial, propAccounts, strat
 
     setSaving(true);
     try {
+      // Zod optional() returns undefined; DB expects null — normalise here
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const payload: any = Object.fromEntries(
+        Object.entries(result.data).map(([k, v]) => [k, v === undefined ? null : v])
+      )
       const saved = initial
-        ? await updateTrade(initial.id, result.data)
-        : await createTrade(result.data);
+        ? await updateTrade(initial.id, payload)
+        : await createTrade(payload);
       onSaved(saved);
       onClose();
     } catch (err) {
@@ -623,7 +625,7 @@ export function TradeForm({ open, onClose, onSaved, initial, propAccounts, strat
             {/* Footer */}
             <div className="flex items-center justify-between gap-2 border-t px-6 py-4">
               <div className="flex gap-2">
-                {tabs.map((tab, idx) => (
+                {tabs.map((tab) => (
                   <button
                     key={tab.id}
                     type="button"
