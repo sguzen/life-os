@@ -8,6 +8,7 @@ import { getLapsForActivity } from '@/lib/supabase/running'
 import { formatPace, formatDuration, formatDistance, formatPaceDiff, paceDiff } from '@/lib/running/format'
 import { LapSplits } from '@/components/running/lap-splits'
 import { PaceChart } from '@/components/running/pace-chart'
+import { DeleteRunButton } from '@/components/running/delete-run-button'
 
 interface Props {
   params: { id: string }
@@ -50,10 +51,13 @@ export default async function ActivityDetailPage({ params }: Props) {
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
-      {/* Back */}
-      <Link href="/running" className="inline-flex items-center gap-1.5 text-sm text-white/40 hover:text-white transition-colors">
-        <ArrowLeft className="h-4 w-4" /> Back to Running
-      </Link>
+      {/* Back + Delete */}
+      <div className="flex items-center justify-between">
+        <Link href="/running" className="inline-flex items-center gap-1.5 text-sm text-white/40 hover:text-white transition-colors">
+          <ArrowLeft className="h-4 w-4" /> Back to Running
+        </Link>
+        <DeleteRunButton id={params.id} />
+      </div>
 
       {/* Header */}
       <div>

@@ -7,6 +7,7 @@ import { ActivityList } from '@/components/running/activity-list'
 import { RaceTracker } from '@/components/running/race-tracker'
 import { RestingHrChart } from '@/components/running/resting-hr-chart'
 import { FitUpload } from '@/components/running/fit-upload'
+import { LogRestingHrForm } from '@/components/running/log-resting-hr-form'
 import { formatDistance, formatDuration, formatPace } from '@/lib/running/format'
 
 // ── Summary stats (last 7 days) ───────────────────────────────
@@ -88,9 +89,12 @@ export default async function RunningPage() {
           </div>
 
           {/* Resting HR */}
-          <div className="rounded-xl bg-white/5 border border-white/10 p-5">
-            <h2 className="text-sm font-semibold text-white mb-4">Resting Heart Rate</h2>
+          <div className="rounded-xl bg-white/5 border border-white/10 p-5 space-y-5">
+            <h2 className="text-sm font-semibold text-white">Resting Heart Rate</h2>
             <RestingHrChart logs={hrLogs} />
+            <div className="border-t border-white/10 pt-4">
+              <LogRestingHrForm />
+            </div>
           </div>
         </div>
       </div>
