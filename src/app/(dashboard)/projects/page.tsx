@@ -1,8 +1,10 @@
-export default function ProjectsPage() {
-  return (
-    <div className="space-y-4">
-      <h1 className="text-2xl font-bold">Projects</h1>
-      <p className="text-muted-foreground">Manage your personal and professional projects.</p>
-    </div>
-  );
+import { createClient } from "@/lib/supabase/server";
+import { getProjects } from "@/lib/supabase/projects";
+import { ProjectsView } from "@/components/projects/projects-view";
+
+export default async function ProjectsPage() {
+  const supabase = createClient();
+  const projects = await getProjects(supabase);
+
+  return <ProjectsView initialProjects={projects} />;
 }
