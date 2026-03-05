@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { BookCard } from "./book-card";
 import { BookForm } from "./book-form";
 import { createClient } from "@/lib/supabase/client";
-import { createBook } from "@/lib/supabase/books";
+import { createBook, updateBook, deleteBook } from "@/lib/supabase/books";
 import type { Book } from "@/lib/types";
 import type { BookFormData } from "@/lib/validations/books";
 
@@ -28,6 +28,7 @@ export function BooksView({ initialBooks }: BooksViewProps) {
   const [books, setBooks] = useState<Book[]>(initialBooks);
   const [filter, setFilter] = useState<FilterStatus>("all");
   const [formOpen, setFormOpen] = useState(false);
+  const [editingBook, setEditingBook] = useState<Book | undefined>();
   const router = useRouter();
 
   const filtered =
@@ -39,10 +40,33 @@ export function BooksView({ initialBooks }: BooksViewProps) {
     done: books.filter((b) => b.status === "done").length,
   };
 
-  async function handleCreate(data: BookFormData) {
+  function openCreate() {
+    setEditingBook(undefined);
+    setFormOpen(true);
+  }
+
+  function openEdit(book: Book) {
+    setEditingBook(book);
+    setFormOpen(true);
+  }
+
+  async function handleSubmit(data: BookFormData) {
     const supabase = createClient();
-    const book = await createBook(supabase, data);
-    setBooks((prev) => [book, ...prev]);
+    if (editingBook) {
+      const updated = await updateBook(supabase, editingBook.id, data);
+      setBooks((prev) => prev.map((b) => (b.id === updated.id ? updated : b)));
+    } else {
+      const created = await createBook(supabase, data);
+      setBooks((prev) => [created, ...prev]);
+    }
+    router.refresh();
+  }
+
+  async function handleDelete(id: string) {
+    if (!confirm("Delete this book? This cannot be undone.")) return;
+    const supabase = createClient();
+    await deleteBook(supabase, id);
+    setBooks((prev) => prev.filter((b) => b.id !== id));
     router.refresh();
   }
 
@@ -58,7 +82,7 @@ export function BooksView({ initialBooks }: BooksViewProps) {
           </p>
         </div>
         <button
-          onClick={() => setFormOpen(true)}
+          onClick={openCreate}
           className="inline-flex items-center gap-1 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
         >
           <Plus className="h-4 w-4" />
@@ -91,12 +115,22 @@ export function BooksView({ initialBooks }: BooksViewProps) {
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.map((book) => (
-            <BookCard key={book.id} book={book} />
+            <BookCard
+              key={book.id}
+              book={book}
+              onEdit={openEdit}
+              onDelete={handleDelete}
+            />
           ))}
         </div>
       )}
 
-      <BookForm open={formOpen} onOpenChange={setFormOpen} onSubmit={handleCreate} />
+      <BookForm
+        open={formOpen}
+        onOpenChange={setFormOpen}
+        book={editingBook}
+        onSubmit={handleSubmit}
+      />
     </div>
   );
 }

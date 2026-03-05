@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { ProjectCard } from "./project-card";
 import { ProjectForm } from "./project-form";
 import { createClient } from "@/lib/supabase/client";
-import { createProject } from "@/lib/supabase/projects";
+import { createProject, updateProject, deleteProject } from "@/lib/supabase/projects";
 import type { Project } from "@/lib/types";
 import type { ProjectFormData } from "@/lib/validations/projects";
 
@@ -28,6 +28,7 @@ export function ProjectsView({ initialProjects }: ProjectsViewProps) {
   const [projects, setProjects] = useState<Project[]>(initialProjects);
   const [filter, setFilter] = useState<FilterStatus>("active");
   const [formOpen, setFormOpen] = useState(false);
+  const [editingProject, setEditingProject] = useState<Project | undefined>();
   const router = useRouter();
 
   const filtered =
@@ -35,10 +36,33 @@ export function ProjectsView({ initialProjects }: ProjectsViewProps) {
 
   const active = projects.filter((p) => p.status === "active").length;
 
-  async function handleCreate(data: ProjectFormData) {
+  function openCreate() {
+    setEditingProject(undefined);
+    setFormOpen(true);
+  }
+
+  function openEdit(project: Project) {
+    setEditingProject(project);
+    setFormOpen(true);
+  }
+
+  async function handleSubmit(data: ProjectFormData) {
     const supabase = createClient();
-    const project = await createProject(supabase, data);
-    setProjects((prev) => [project, ...prev]);
+    if (editingProject) {
+      const updated = await updateProject(supabase, editingProject.id, data);
+      setProjects((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+    } else {
+      const created = await createProject(supabase, data);
+      setProjects((prev) => [created, ...prev]);
+    }
+    router.refresh();
+  }
+
+  async function handleDelete(id: string) {
+    if (!confirm("Delete this project and all its tasks? This cannot be undone.")) return;
+    const supabase = createClient();
+    await deleteProject(supabase, id);
+    setProjects((prev) => prev.filter((p) => p.id !== id));
     router.refresh();
   }
 
@@ -53,7 +77,7 @@ export function ProjectsView({ initialProjects }: ProjectsViewProps) {
           </p>
         </div>
         <button
-          onClick={() => setFormOpen(true)}
+          onClick={openCreate}
           className="inline-flex items-center gap-1 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
         >
           <Plus className="h-4 w-4" />
@@ -86,12 +110,22 @@ export function ProjectsView({ initialProjects }: ProjectsViewProps) {
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.map((project) => (
-            <ProjectCard key={project.id} project={project} />
+            <ProjectCard
+              key={project.id}
+              project={project}
+              onEdit={openEdit}
+              onDelete={handleDelete}
+            />
           ))}
         </div>
       )}
 
-      <ProjectForm open={formOpen} onOpenChange={setFormOpen} onSubmit={handleCreate} />
+      <ProjectForm
+        open={formOpen}
+        onOpenChange={setFormOpen}
+        project={editingProject}
+        onSubmit={handleSubmit}
+      />
     </div>
   );
 }
