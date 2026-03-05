@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const INSTRUMENTS = ["NQ", "Gold", "CL", "6E"] as const;
+export const INSTRUMENTS = ["NQ", "Gold", "CL", "6E", "ES"] as const;
 export const PROP_FIRMS = ["FundedNext", "AlphaFutures", "TakeProfitTrader", "YRM"] as const;
 export const TRADE_DIRECTIONS = ["long", "short"] as const;
 export const TRADE_OUTCOMES = ["win", "loss", "break_even", "open"] as const;
@@ -12,6 +12,7 @@ export const INSTRUMENT_LABELS: Record<string, string> = {
   Gold: "Gold (GC)",
   CL: "CL (Crude Oil)",
   "6E": "6E (Euro/USD)",
+  ES: "ES (S&P 500 Futures)",
 };
 
 export const PROP_FIRM_LABELS: Record<string, string> = {
