@@ -1,7 +1,7 @@
 "use client";
 
 import * as Dialog from "@radix-ui/react-dialog";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { X } from "lucide-react";
 import { projectSchema, PROJECT_COLORS, type ProjectFormData } from "@/lib/validations/projects";
 import type { Project } from "@/lib/types";
@@ -42,11 +42,14 @@ export function ProjectForm({ open, onOpenChange, project, onSubmit }: ProjectFo
   const [errors, setErrors] = useState<Partial<Record<keyof ProjectFormData, string>>>({});
   const [submitting, setSubmitting] = useState(false);
 
-  function handleOpenChange(val: boolean) {
-    if (val) {
+  useEffect(() => {
+    if (open) {
       setForm(defaultForm(project));
       setErrors({});
     }
+  }, [open, project]);
+
+  function handleOpenChange(val: boolean) {
     onOpenChange(val);
   }
 

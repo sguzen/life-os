@@ -1,7 +1,7 @@
 "use client";
 
 import * as Dialog from "@radix-ui/react-dialog";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { X } from "lucide-react";
 import {
   strategySchema,
@@ -57,13 +57,16 @@ export function StrategyForm({ open, onClose, onSaved, initial }: Props) {
   const [serverError, setServerError] = useState<string | null>(null);
   const [tagInput, setTagInput] = useState("");
 
-  function handleOpen(val: boolean) {
-    if (val) {
+  useEffect(() => {
+    if (open) {
       setForm(initial ? fromStrategy(initial) : emptyForm());
       setErrors({});
       setServerError(null);
       setTagInput("");
     }
+  }, [open, initial]);
+
+  function handleOpen(val: boolean) {
     if (!val) onClose();
   }
 
