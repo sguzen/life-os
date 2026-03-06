@@ -243,6 +243,25 @@ export async function recomputeAccountBalance(accountId: string): Promise<void> 
   if (updateErr) throw updateErr;
 }
 
+export async function bulkDeleteTrades(ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  const supabase = createClient();
+
+  // Collect affected account IDs before deletion for balance recompute
+  const { data: before } = await supabase
+    .from("trades")
+    .select("prop_account_id")
+    .in("id", ids);
+  const accountsToRecompute = new Set(
+    (before ?? []).map((t) => t.prop_account_id).filter(Boolean) as string[]
+  );
+
+  const { error } = await supabase.from("trades").delete().in("id", ids);
+  if (error) throw error;
+
+  await Promise.all(Array.from(accountsToRecompute).map(recomputeAccountBalance));
+}
+
 export async function bulkUpdateTrades(
   ids: string[],
   input: { prop_account_id?: string | null; strategy_id?: string | null }
