@@ -90,7 +90,9 @@ CREATE TABLE race_results (
   official              boolean NOT NULL DEFAULT true,
   notes                 text,
   ai_debrief            text,
-  created_at            timestamptz NOT NULL DEFAULT now()
+  created_at            timestamptz NOT NULL DEFAULT now(),
+
+  UNIQUE (user_id, race_date)
 );
 
 -- ── Indexes ───────────────────────────────────────────────────
