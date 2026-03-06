@@ -1,66 +1,47 @@
-// Supplement tracker page
+'use client'
 
-import type { Metadata } from 'next'
+import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
-import { ChevronLeft, Pill } from 'lucide-react'
-import { createClient } from '@/lib/supabase/server'
-import { getServerSupplementLog } from '@/lib/supabase/nutrition'
-import { SupplementChecklist } from '@/components/nutrition/SupplementChecklist'
+import { ChevronLeft, Pill, List, CalendarCheck } from 'lucide-react'
+import { getSupplements, getSupplementLogsForDate, seedDefaultSupplements } from '@/lib/supabase/supplements'
+import { isBloodDonationRecovery } from '@/lib/supabase/nutrition'
+import { DailySupplementChecklist } from '@/components/supplements/DailySupplementChecklist'
+import { SupplementList } from '@/components/supplements/SupplementList'
+import type { Supplement, SupplementLogEntry } from '@/lib/types/supplements'
 
-export const metadata: Metadata = {
-  title: 'Supplements | Nutrition | Life OS',
-}
+type Tab = 'today' | 'manage'
 
-export const dynamic = 'force-dynamic'
+export default function SupplementsPage() {
+  const [tab, setTab] = useState<Tab>('today')
+  const [supplements, setSupplements] = useState<Supplement[]>([])
+  const [logs, setLogs] = useState<SupplementLogEntry[]>([])
+  const [bloodDonationRecovery, setBloodDonationRecovery] = useState(false)
+  const [loading, setLoading] = useState(true)
 
-export default async function SupplementsPage() {
-  const supabase = createClient()
   const today = new Date().toISOString().slice(0, 10)
 
-  // Get today's supplement log
-  const supplementLog = await getServerSupplementLog(supabase, today)
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      await seedDefaultSupplements()
+      const [sups, dayLogs, recovery] = await Promise.all([
+        getSupplements(),
+        getSupplementLogsForDate(today),
+        isBloodDonationRecovery(),
+      ])
+      setSupplements(sups)
+      setLogs(dayLogs)
+      setBloodDonationRecovery(recovery)
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setLoading(false)
+    }
+  }, [today])
 
-  // Check blood donation recovery flag
-  const cutoff = new Date()
-  cutoff.setDate(cutoff.getDate() - 14)
-  const { data: recoveryData } = await supabase
-    .from('running_activities')
-    .select('id')
-    .eq('blood_donation_recovery', true)
-    .gte('started_at', cutoff.toISOString())
-    .limit(1)
-    .maybeSingle()
-
-  const isBloodDonationRecovery = !!recoveryData
-
-  // Weekly counts
-  const dow = new Date().getDay()
-  const monday = new Date()
-  monday.setDate(monday.getDate() - (dow === 0 ? 6 : dow - 1))
-  const mondayStr = monday.toISOString().slice(0, 10)
-
-  const [d3Result, b12Result] = await Promise.allSettled([
-    supabase
-      .from('supplement_logs')
-      .select('vitamin_d3_taken')
-      .gte('log_date', mondayStr)
-      .lte('log_date', today),
-    supabase
-      .from('supplement_logs')
-      .select('b12_taken')
-      .gte('log_date', mondayStr)
-      .lte('log_date', today),
-  ])
-
-  const vitaminD3WeekCount =
-    d3Result.status === 'fulfilled'
-      ? (d3Result.value.data ?? []).filter((r) => r.vitamin_d3_taken).length
-      : 0
-
-  const b12WeekCount =
-    b12Result.status === 'fulfilled'
-      ? (b12Result.value.data ?? []).filter((r) => r.b12_taken).length
-      : 0
+  useEffect(() => {
+    load()
+  }, [load])
 
   const dateLabel = new Date().toLocaleDateString('en-GB', {
     weekday: 'long',
@@ -70,6 +51,7 @@ export default async function SupplementsPage() {
 
   return (
     <div className="max-w-2xl space-y-6">
+      {/* Breadcrumb */}
       <div className="flex items-center gap-3">
         <Link
           href="/nutrition"
@@ -80,6 +62,7 @@ export default async function SupplementsPage() {
         </Link>
       </div>
 
+      {/* Header */}
       <div>
         <div className="flex items-center gap-2 mb-1">
           <Pill className="h-5 w-5 text-emerald-400" />
@@ -88,30 +71,54 @@ export default async function SupplementsPage() {
         <p className="text-sm text-white/40">{dateLabel}</p>
       </div>
 
-      <div className="rounded-xl border border-white/10 bg-white/5 p-5">
-        <SupplementChecklist
-          date={today}
-          initialLog={supplementLog}
-          isBloodDonationRecovery={isBloodDonationRecovery}
-          vitaminD3WeekCount={vitaminD3WeekCount}
-          b12WeekCount={b12WeekCount}
-        />
+      {/* Tabs */}
+      <div className="flex gap-1 bg-white/5 rounded-xl p-1">
+        <button
+          onClick={() => setTab('today')}
+          className={`flex-1 flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+            tab === 'today'
+              ? 'bg-white/10 text-white'
+              : 'text-white/40 hover:text-white/60'
+          }`}
+        >
+          <CalendarCheck className="h-3.5 w-3.5" />
+          Today
+        </button>
+        <button
+          onClick={() => setTab('manage')}
+          className={`flex-1 flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+            tab === 'manage'
+              ? 'bg-white/10 text-white'
+              : 'text-white/40 hover:text-white/60'
+          }`}
+        >
+          <List className="h-3.5 w-3.5" />
+          Manage
+        </button>
       </div>
 
-      {/* Info block */}
-      <div className="rounded-xl border border-white/8 bg-white/3 p-4 space-y-2">
-        <p className="text-xs font-semibold text-white/40 uppercase tracking-wider">Prescribing notes</p>
-        <ul className="space-y-1 text-xs text-white/30">
-          <li>• NO 3: 3-month course, dissolve in mouth in 5-5-5 pattern</li>
-          <li>• Vitamin D3 50000 IU: 1x/week with food — test at week 13</li>
-          <li>• B12 5000mcg: 2x/week — switch to NOW 1000mcg sublingual after</li>
-          <li>• Zentius Flash: switch to NO 2 when finished</li>
-          <li>• Folic Acid: 1/day for 1 month, then 3x/week</li>
-          <li>• Se ACE Zinc: 4-month course</li>
-          <li>• Iron: every other day normally; DAILY during blood donation recovery (2 weeks)</li>
-          <li>• Mg Diasporal + Melatonin: every night</li>
-        </ul>
-      </div>
+      {/* Content */}
+      {loading ? (
+        <div className="rounded-xl border border-white/10 bg-white/5 p-8 text-center text-sm text-white/30">
+          Loading supplements…
+        </div>
+      ) : tab === 'today' ? (
+        <div className="rounded-xl border border-white/10 bg-white/5 p-5">
+          <DailySupplementChecklist
+            supplements={supplements}
+            logs={logs}
+            date={today}
+            bloodDonationRecoveryActive={bloodDonationRecovery}
+            onLogUpdated={() => getSupplementLogsForDate(today).then(setLogs)}
+          />
+        </div>
+      ) : (
+        <SupplementList
+          supplements={supplements}
+          bloodDonationRecoveryActive={bloodDonationRecovery}
+          onRefresh={load}
+        />
+      )}
     </div>
   )
 }

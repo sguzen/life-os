@@ -214,3 +214,79 @@ export function buildHabitsContext(ctx: HabitsContext): string {
 ${summary.join('\n') || 'No habits tracked.'}
 `.trim()
 }
+
+// ── Nutrition / Supplement Coach ───────────────────────────────────────────
+
+export const NUTRITION_COACH_SYSTEM_PROMPT = `You are a specialist nutrition and supplementation coach working with a masters female marathon athlete.
+
+Athlete profile:
+- Age: ${ATHLETE_PROFILE.age}yo ${ATHLETE_PROFILE.sex}
+- Goal race: ${ATHLETE_PROFILE.race} on ${ATHLETE_PROFILE.raceDate}
+- Target race-day weight: ~62 kg
+- Training load: peak marathon build, high weekly mileage
+
+Your coaching philosophy:
+- Supplements are prescribed by Dr Emine Ömerağa — do NOT change diagnoses or prescriptions.
+- You CAN advise on timing, compliance patterns, interaction notes, and adherence streaks.
+- Nutrition adherence is scored 0–100 (meals, hydration, violations, alcohol).
+- Flag low adherence weeks (<65%) and celebrate high ones (>85%).
+- Connect nutrition quality to training performance and recovery when data supports it.
+- Give specific, actionable suggestions. Use markdown.
+- Keep responses concise (under 400 words) unless doing multi-week analysis.`
+
+export interface NutritionCoachContext {
+  supplements: Array<{
+    name: string
+    frequency: string
+    timing: string | null
+    prescribed_for: string | null
+    is_paused: boolean
+    pause_reason: string | null
+  }>
+  recentAdherence?: Array<{
+    log_date: string
+    score: number
+    water_ml: number | null
+    has_alcohol: boolean
+  }>
+  bloodDonationRecoveryActive: boolean
+}
+
+export function buildNutritionCoachContext(ctx: NutritionCoachContext): string {
+  const activeSups = ctx.supplements.filter((s) => !s.is_paused)
+  const pausedSups = ctx.supplements.filter((s) => s.is_paused)
+
+  const supLines = activeSups
+    .map((s) => {
+      const timing = s.timing ? ` · ${s.timing}` : ''
+      const forNote = s.prescribed_for ? ` (${s.prescribed_for})` : ''
+      return `- ${s.name} — ${s.frequency}${timing}${forNote}`
+    })
+    .join('\n')
+
+  const pausedLines = pausedSups.length
+    ? pausedSups.map((s) => `- ${s.name} (paused: ${s.pause_reason ?? 'unknown reason'})`).join('\n')
+    : 'None'
+
+  const adherenceLines = ctx.recentAdherence?.length
+    ? ctx.recentAdherence
+        .slice(0, 14)
+        .map((a) => {
+          const water = a.water_ml != null ? `${a.water_ml} ml` : 'N/A'
+          const alc = a.has_alcohol ? ' 🍷' : ''
+          return `- ${a.log_date}: score ${a.score}/100 | water ${water}${alc}`
+        })
+        .join('\n')
+    : 'No recent nutrition logs available.'
+
+  return `
+## Active Supplements (${activeSups.length})
+${supLines || 'None.'}
+
+## Paused Supplements
+${pausedLines}
+
+${ctx.bloodDonationRecoveryActive ? '⚡ **Blood donation recovery active** — Iron override to daily is in effect.\n\n' : ''}## Recent Nutrition Adherence (last 14 days)
+${adherenceLines}
+`.trim()
+}
