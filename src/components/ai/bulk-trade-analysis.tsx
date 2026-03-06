@@ -78,12 +78,12 @@ export function BulkTradeAnalysis() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [completion])
 
+  const monthLabel = `${MONTHS[month - 1]} ${year}`
+
   const handleAnalyse = () => {
     setMessages([])
     append({ role: 'user', content: `Analyse ${monthLabel}` }, { body: { month, year } })
   }
-
-  const monthLabel = `${MONTHS[month - 1]} ${year}`
 
   // Year options: current year and previous 2
   const yearOptions = [now.getFullYear(), now.getFullYear() - 1, now.getFullYear() - 2]
