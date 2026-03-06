@@ -70,6 +70,7 @@ export function BulkTradeAnalysis() {
 
   const { messages, append, isLoading, stop, setMessages } = useChat({
     api: '/api/ai/trade-analysis',
+    body: { month, year },
   })
 
   const completion = messages.filter(m => m.role === 'assistant').at(-1)?.content ?? ''
@@ -82,7 +83,7 @@ export function BulkTradeAnalysis() {
 
   const handleAnalyse = () => {
     setMessages([])
-    append({ role: 'user', content: `Analyse ${monthLabel}` }, { body: { month, year } })
+    append({ role: 'user', content: `Analyse ${monthLabel}` })
   }
 
   // Year options: current year and previous 2
