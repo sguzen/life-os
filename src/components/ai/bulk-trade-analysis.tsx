@@ -4,7 +4,7 @@
 // One-shot Gemini 2.0 Flash analysis of a full calendar month of trades
 
 import { useState, useRef, useEffect } from 'react'
-import { useCompletion } from '@ai-sdk/react'
+import { useChat } from '@ai-sdk/react'
 import { BarChart3, ChevronDown, Loader2, Bot, RefreshCw } from 'lucide-react'
 
 const MONTHS = [
@@ -68,17 +68,19 @@ export function BulkTradeAnalysis() {
   const [year, setYear] = useState(now.getFullYear())
   const bottomRef = useRef<HTMLDivElement>(null)
 
-  const { completion, complete, isLoading, stop, setCompletion } = useCompletion({
+  const { messages, append, isLoading, stop, setMessages } = useChat({
     api: '/api/ai/trade-analysis',
   })
+
+  const completion = messages.filter(m => m.role === 'assistant').at(-1)?.content ?? ''
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [completion])
 
   const handleAnalyse = () => {
-    setCompletion('')
-    complete('', { body: { month, year } })
+    setMessages([])
+    append({ role: 'user', content: `Analyse ${monthLabel}` }, { body: { month, year } })
   }
 
   const monthLabel = `${MONTHS[month - 1]} ${year}`
@@ -97,7 +99,7 @@ export function BulkTradeAnalysis() {
         </div>
         {completion && (
           <button
-            onClick={() => setCompletion('')}
+            onClick={() => setMessages([])}
             className="text-xs text-white/30 hover:text-white/60 transition-colors flex items-center gap-1"
           >
             <RefreshCw className="h-3 w-3" />
