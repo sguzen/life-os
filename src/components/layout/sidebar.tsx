@@ -15,6 +15,7 @@ import {
   Menu,
   X,
   ShieldCheck,
+  Salad,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
@@ -27,6 +28,7 @@ const navItems: Array<{ href: string; label: string; icon: React.ElementType; in
   { href: "/trading", label: "Trading", icon: TrendingUp },
   { href: "/trading/accountability", label: "Accountability", icon: ShieldCheck, indent: true },
   { href: "/running", label: "Running", icon: Footprints },
+  { href: "/nutrition", label: "Nutrition", icon: Salad },
   { href: "/finance", label: "Finance", icon: Wallet },
   { href: "/books", label: "Books", icon: BookOpen },
   { href: "/projects", label: "Projects", icon: FolderKanban },

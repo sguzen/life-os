@@ -16,6 +16,11 @@ import type { NextRunData } from '@/components/dashboard/next-run-card'
 import { DebtSummaryCard } from '@/components/dashboard/debt-summary-card'
 import type { DebtSummaryData } from '@/components/dashboard/debt-summary-card'
 import { AIDailyBrief } from '@/components/dashboard/ai-daily-brief'
+import { NutritionCard } from '@/components/dashboard/nutrition-card'
+import {
+  getServerNutritionLog,
+  getServerSupplementLog,
+} from '@/lib/supabase/nutrition'
 import type { HabitWithLogs } from '@/lib/types'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -62,13 +67,15 @@ export default async function DashboardPage() {
   const supabase = createClient()
 
   // Parallel data fetching — graceful fallback on any error
-  const [habitsResult, debtsResult, payoutsResult, activitiesResult, racesResult] =
+  const [habitsResult, debtsResult, payoutsResult, activitiesResult, racesResult, nutritionResult, supplementResult] =
     await Promise.allSettled([
       getHabitsWithLogs(supabase),
       getDebts(supabase),
       getPropPayouts(supabase),
       getActivities(3),
       getRaceTargets(),
+      getServerNutritionLog(supabase, new Date().toISOString().slice(0, 10)),
+      getServerSupplementLog(supabase, new Date().toISOString().slice(0, 10)),
     ])
 
   const habits = habitsResult.status === 'fulfilled' ? habitsResult.value : []
@@ -76,6 +83,8 @@ export default async function DashboardPage() {
   const payouts = payoutsResult.status === 'fulfilled' ? payoutsResult.value : []
   const activities = activitiesResult.status === 'fulfilled' ? activitiesResult.value : []
   const races = racesResult.status === 'fulfilled' ? racesResult.value : []
+  const nutritionLog = nutritionResult.status === 'fulfilled' ? nutritionResult.value : null
+  const supplementLog = supplementResult.status === 'fulfilled' ? supplementResult.value : null
 
   // Trades + prop accounts (use server client directly — trading.ts uses browser client)
   const today = new Date()
@@ -249,7 +258,12 @@ export default async function DashboardPage() {
         <DebtSummaryCard data={debtData} />
       </div>
 
-      {/* Row 4 — AI Brief (full width, loads async) */}
+      {/* Row 4 — Nutrition */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <NutritionCard log={nutritionLog} supplementLog={supplementLog} />
+      </div>
+
+      {/* Row 5 — AI Brief (full width, loads async) */}
       <AIDailyBrief />
     </div>
   )
