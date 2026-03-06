@@ -3,7 +3,7 @@
 import { useState, useMemo } from "react";
 import { Plus, SlidersHorizontal, TrendingUp, TrendingDown, FileUp, CheckSquare } from "lucide-react";
 import { TradeForm } from "./trade-form";
-import { TradovateImport } from "./tradovate-import";
+import { TradovateDualImport } from "./tradovate-dual-import";
 import { getTrades, getPropAccounts, bulkUpdateTrades } from "@/lib/supabase/trading";
 import { INSTRUMENTS } from "@/lib/validations/trading";
 import { cn } from "@/lib/utils";
@@ -522,7 +522,7 @@ export function TradesList({ trades, propAccounts, strategies, onTradesChange, o
       />
 
       {importOpen && (
-        <TradovateImport
+        <TradovateDualImport
           propAccounts={propAccounts}
           strategies={strategies}
           onImported={handleImported}
