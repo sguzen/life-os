@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import React, { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -14,16 +14,18 @@ import {
   LogOut,
   Menu,
   X,
+  ShieldCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import { NotificationSetup } from "@/components/notifications/notification-setup";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
 
-const navItems = [
+const navItems: Array<{ href: string; label: string; icon: React.ElementType; indent?: boolean }> = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/habits", label: "Habits", icon: Activity },
   { href: "/trading", label: "Trading", icon: TrendingUp },
+  { href: "/trading/accountability", label: "Accountability", icon: ShieldCheck, indent: true },
   { href: "/running", label: "Running", icon: Footprints },
   { href: "/finance", label: "Finance", icon: Wallet },
   { href: "/books", label: "Books", icon: BookOpen },
@@ -33,19 +35,20 @@ const navItems = [
 function NavLinks({ pathname, onNavigate }: { pathname: string; onNavigate?: () => void }) {
   return (
     <>
-      {navItems.map(({ href, label, icon: Icon }) => (
+      {navItems.map(({ href, label, icon: Icon, indent }) => (
         <Link
           key={href}
           href={href}
           onClick={onNavigate}
           className={cn(
             "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-            pathname === href
+            indent && "ml-4 text-xs",
+            pathname === href || (indent && pathname.startsWith(href))
               ? "bg-accent text-accent-foreground"
               : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
           )}
         >
-          <Icon className="h-4 w-4 shrink-0" />
+          <Icon className={cn("shrink-0", indent ? "h-3.5 w-3.5" : "h-4 w-4")} />
           {label}
         </Link>
       ))}
