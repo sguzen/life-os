@@ -102,17 +102,25 @@ export default async function DashboardPage() {
   const propAccountRow =
     propAccountResult.status === 'fulfilled' ? propAccountResult.value.data : null
 
-  // Today's P&L for the active prop account
+  // Today's P&L for the active prop account (fees included for open trades)
   let todayPnl = 0
   if (propAccountRow?.id) {
     const { data: todayTrades } = await supabase
       .from('trades')
-      .select('net_pnl')
+      .select('net_pnl, fees')
       .eq('prop_account_id', propAccountRow.id)
       .gte('entry_time', `${todayStr}T00:00:00`)
       .lte('entry_time', `${todayStr}T23:59:59`)
 
-    todayPnl = (todayTrades ?? []).reduce((s: number, t: { net_pnl: number | null }) => s + (t.net_pnl ?? 0), 0)
+    todayPnl = (todayTrades ?? []).reduce(
+      (s: number, t: { net_pnl: number | null; fees: number | null }) => {
+        // Closed trades: net_pnl already deducts fees
+        if (t.net_pnl !== null) return s + t.net_pnl
+        // Open trades: gross_pnl unknown, but fees are a realized cost
+        return s - (t.fees ?? 0)
+      },
+      0
+    )
   }
 
   // ── Derived data ──────────────────────────────────────────────────────────
