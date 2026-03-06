@@ -282,6 +282,111 @@ export interface Note {
   updatedAt: Date;
 }
 
+// ---- Adaptive Replanning Engine ----
+
+export type AdaptTriggerType = 'illness' | 'injury' | 'fatigue' | 'poor_sleep'
+export type AdaptEventStatus = 'pending' | 'adjustments_proposed' | 'approved' | 'rejected' | 'recovered'
+export type AdaptModule = 'marathon' | 'nutrition' | 'trading'
+
+export interface AdaptationEvent {
+  id: string
+  user_id: string
+  reported_at: string
+  event_date: string
+  trigger_type: AdaptTriggerType
+  severity: number
+  symptoms: string | null
+  affected_body_part: string | null
+  sleep_hours: number | null
+  resting_hr: number | null
+  estimated_days: number | null
+  status: AdaptEventStatus
+  ai_triage: string | null
+  ai_generated_at: string | null
+  recovery_confirmed_at: string | null
+  notes: string | null
+  created_at: string
+}
+
+export interface AdaptationAdjustment {
+  id: string
+  event_id: string
+  user_id: string
+  module: AdaptModule
+  target_date: string
+  target_id: string | null
+  target_description: string | null
+  change_type: string
+  original_value: Record<string, unknown> | null
+  adjusted_value: Record<string, unknown> | null
+  reasoning: string | null
+  approved: boolean | null
+  applied_at: string | null
+  user_override: string | null
+  created_at: string
+}
+
+export interface RecoveryCheckin {
+  id: string
+  event_id: string
+  user_id: string
+  checkin_date: string
+  feeling_score: number
+  symptoms_present: boolean | null
+  resting_hr: number | null
+  notes: string | null
+  ai_recommendation: string | null
+  created_at: string
+}
+
+// AI-generated adjustment proposals (before DB insertion)
+export interface MarathonAdjustmentProposal {
+  date: string
+  original_type: string
+  original_description: string
+  original_km: number
+  adjusted_type: string
+  adjusted_description: string
+  adjusted_km: number
+  reasoning: string
+}
+
+export interface NutritionAdjustmentProposal {
+  date: string
+  water_target_ml: number
+  calorie_modifier: string
+  meal_modifications: {
+    breakfast: string | null
+    lunch: string | null
+    snack1: string | null
+    snack2: string | null
+    snack3: string | null
+    snack4: string | null
+  }
+  supplement_additions: string[]
+  foods_to_prioritise: string[]
+  foods_to_avoid: string[]
+  reasoning: string
+}
+
+export interface TradingAdjustmentProposal {
+  date: string
+  gate_recommendation: 'trade_normally' | 'reduced_size' | 'observation_only' | 'no_trading'
+  reasoning: string
+}
+
+export interface AdaptationProposals {
+  summary: string
+  marathon_adjustments: MarathonAdjustmentProposal[]
+  nutrition_adjustments: NutritionAdjustmentProposal[]
+  trading_adjustments: TradingAdjustmentProposal[]
+  recovery_plan: {
+    daily_checkin_required: boolean
+    return_to_normal_criteria: string
+    estimated_return_date: string
+  }
+}
+
 export interface Goal {
   id: string;
   title: string;

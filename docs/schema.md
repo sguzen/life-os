@@ -405,3 +405,80 @@ Tasks within a project; three-column kanban (todo → in_progress → done).
 
 **RLS**: users manage only their own rows.
 **Index**: `(project_id, position)`
+
+---
+
+---
+
+## Adaptive Replanning Engine Tables
+
+### `adaptation_events`
+One row per adaptation trigger reported by the user.
+
+| Column                 | Type        | Notes                                                      |
+|------------------------|-------------|-------------------------------------------------------------|
+| id                     | uuid (PK)   | `gen_random_uuid()`                                         |
+| user_id                | uuid        | FK → auth.users(id)                                        |
+| reported_at            | timestamptz | when the event was created, default now()                   |
+| event_date             | date        | day the issue started, default CURRENT_DATE                 |
+| trigger_type           | text        | `'illness'` \| `'injury'` \| `'fatigue'` \| `'poor_sleep'` |
+| severity               | integer     | 1 (mild) to 5 (severe)                                      |
+| symptoms               | text        | free text, comma-separated                                  |
+| affected_body_part     | text        | for injury only                                             |
+| sleep_hours            | numeric(3,1)| for poor_sleep trigger                                      |
+| resting_hr             | integer     | morning RHR if known                                        |
+| estimated_days         | integer     | user's estimate of duration                                 |
+| status                 | text        | `'pending'` \| `'adjustments_proposed'` \| `'approved'` \| `'rejected'` \| `'recovered'` |
+| ai_triage              | text        | AI severity analysis output                                 |
+| ai_generated_at        | timestamptz | when AI triage was generated                                |
+| recovery_confirmed_at  | timestamptz | when user confirmed recovery                                |
+| notes                  | text        | optional                                                    |
+| created_at             | timestamptz |                                                             |
+
+**RLS**: users manage only their own rows.
+
+---
+
+### `adaptation_adjustments`
+One row per proposed change (one session or one day of nutrition/trading).
+
+| Column             | Type        | Notes                                                  |
+|--------------------|-------------|--------------------------------------------------------|
+| id                 | uuid (PK)   | `gen_random_uuid()`                                    |
+| event_id           | uuid        | FK → adaptation_events(id) CASCADE                    |
+| user_id            | uuid        | FK → auth.users(id)                                   |
+| module             | text        | `'marathon'` \| `'nutrition'` \| `'trading'`          |
+| target_date        | date        | which day this adjustment applies to                   |
+| target_id          | uuid        | FK to the target row (optional)                        |
+| target_description | text        | human-readable e.g. "Thu Tempo 13km"                  |
+| change_type        | text        | e.g. `'convert_to_rest'`, `'reduce_volume'`           |
+| original_value     | jsonb       | original plan data snapshot                            |
+| adjusted_value     | jsonb       | proposed adjusted data                                 |
+| reasoning          | text        | why this change                                        |
+| approved           | boolean     | null = pending, true = approved, false = rejected      |
+| applied_at         | timestamptz | when change was written to target table                |
+| user_override      | text        | if user modified the AI suggestion                     |
+| created_at         | timestamptz |                                                        |
+
+**RLS**: users manage only their own rows.
+
+---
+
+### `recovery_checkins`
+Daily check-ins while an adaptation is active.
+
+| Column           | Type        | Notes                                      |
+|------------------|-------------|---------------------------------------------|
+| id               | uuid (PK)   | `gen_random_uuid()`                         |
+| event_id         | uuid        | FK → adaptation_events(id) CASCADE         |
+| user_id          | uuid        | FK → auth.users(id)                        |
+| checkin_date     | date        | calendar day                                |
+| feeling_score    | integer     | 1–10                                        |
+| symptoms_present | boolean     | are symptoms still present                  |
+| resting_hr       | integer     | morning RHR (optional)                      |
+| notes            | text        | optional                                    |
+| ai_recommendation| text        | `'continue_modified'` \| `'return_to_normal'` \| `'extend_adaptation'` |
+| created_at       | timestamptz |                                             |
+
+**Constraint**: `UNIQUE (event_id, checkin_date)` — one check-in per event per day.
+**RLS**: users manage only their own rows.
