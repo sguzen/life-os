@@ -79,7 +79,7 @@ export async function POST(req: Request) {
 
   const system = `${TRADING_COACH_SYSTEM_PROMPT}\n\n---\n\n${contextBlock}`
 
-  const result = await streamText({
+  const result = streamText({
     model: google('gemini-2.5-flash'),
     system,
     messages: [
@@ -92,5 +92,5 @@ export async function POST(req: Request) {
     temperature: 0.5,
   })
 
-  return result.toDataStreamResponse()
+  return result.toUIMessageStreamResponse()
 }
