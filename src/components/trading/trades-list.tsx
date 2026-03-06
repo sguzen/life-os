@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { Plus, SlidersHorizontal, TrendingUp, TrendingDown, FileUp, CheckSquare } from "lucide-react";
+import { Plus, SlidersHorizontal, TrendingUp, TrendingDown, FileUp, CheckSquare, Trash2 } from "lucide-react";
 import { TradeForm } from "./trade-form";
 import { TradovateDualImport } from "./tradovate-dual-import";
-import { getTrades, getPropAccounts, bulkUpdateTrades } from "@/lib/supabase/trading";
+import { getTrades, getPropAccounts, bulkUpdateTrades, bulkDeleteTrades } from "@/lib/supabase/trading";
 import { INSTRUMENTS } from "@/lib/validations/trading";
 import { cn } from "@/lib/utils";
 import type { Trade, PropAccount, Strategy, Instrument, TradeOutcome } from "@/lib/types";
@@ -78,6 +78,7 @@ export function TradesList({ trades, propAccounts, strategies, onTradesChange, o
   const [bulkAccount, setBulkAccount] = useState("");
   const [bulkStrategy, setBulkStrategy] = useState("");
   const [bulkApplying, setBulkApplying] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   function handleSaved(saved: Trade) {
     if (trades.find((t) => t.id === saved.id)) {
@@ -183,6 +184,23 @@ export function TradesList({ trades, propAccounts, strategies, onTradesChange, o
       console.error(err);
     } finally {
       setBulkApplying(false);
+    }
+  }
+
+  async function deleteBulk() {
+    if (!confirm(`Delete ${selectedIds.size} trade${selectedIds.size === 1 ? "" : "s"}? This cannot be undone.`)) return;
+    setBulkDeleting(true);
+    try {
+      const ids = Array.from(selectedIds);
+      await bulkDeleteTrades(ids);
+      const refreshedAccounts = await getPropAccounts();
+      onTradesChange(trades.filter((t) => !selectedIds.has(t.id)));
+      onAccountsChange(refreshedAccounts);
+      setSelectedIds(new Set());
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setBulkDeleting(false);
     }
   }
 
@@ -336,10 +354,18 @@ export function TradesList({ trades, propAccounts, strategies, onTradesChange, o
             </select>
             <button
               onClick={applyBulk}
-              disabled={bulkApplying || (!bulkAccount && !bulkStrategy)}
+              disabled={bulkApplying || bulkDeleting || (!bulkAccount && !bulkStrategy)}
               className="rounded-md bg-primary px-3 py-1 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             >
               {bulkApplying ? "Applying…" : "Apply"}
+            </button>
+            <button
+              onClick={deleteBulk}
+              disabled={bulkDeleting || bulkApplying}
+              className="flex items-center gap-1.5 rounded-md bg-destructive px-3 py-1 text-sm font-medium text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              {bulkDeleting ? "Deleting…" : "Delete"}
             </button>
           </div>
           <button
