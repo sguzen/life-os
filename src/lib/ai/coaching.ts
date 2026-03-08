@@ -521,3 +521,91 @@ export function buildGlobalContextBlock(ctx: GlobalLifeContext): string {
 
   return sections.join('\n\n')
 }
+
+// ── Nutrition + Plan Config context for Life Coach ────────────────────────────
+
+export interface GlobalNutritionContext {
+  meals: Array<{
+    meal_name: string
+    label: string
+    description: string | null
+    calories: number | null
+    protein: number | null
+    carbs: number | null
+    fats: number | null
+    day_type: string
+  }>
+  nutritionConfigs: Array<{
+    config_key: string
+    config_label: string
+    config_value: string
+    config_unit: string | null
+  }>
+  todayDayType: 'training' | 'rest'
+}
+
+export async function getGlobalContext(
+  supabase: SupabaseClient
+): Promise<GlobalNutritionContext> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) {
+    return { meals: [], nutritionConfigs: [], todayDayType: 'training' }
+  }
+
+  // Determine today's day type (weekday = training, weekend = rest)
+  const dow = new Date().getDay()
+  const todayDayType: 'training' | 'rest' = dow >= 1 && dow <= 5 ? 'training' : 'rest'
+
+  const [mealsResult, configsResult] = await Promise.allSettled([
+    supabase
+      .from('meals')
+      .select('meal_name, label, description, calories, protein, carbs, fats, day_type')
+      .eq('user_id', user.id)
+      .eq('day_type', todayDayType)
+      .order('order_index'),
+    supabase
+      .from('plan_configs')
+      .select('config_key, config_label, config_value, config_unit')
+      .eq('user_id', user.id)
+      .eq('module', 'nutrition'),
+  ])
+
+  const meals =
+    mealsResult.status === 'fulfilled' ? (mealsResult.value.data ?? []) : []
+  const nutritionConfigs =
+    configsResult.status === 'fulfilled' ? (configsResult.value.data ?? []) : []
+
+  return { meals, nutritionConfigs, todayDayType }
+}
+
+export function buildNutritionContextBlock(ctx: GlobalNutritionContext): string {
+  const dayLabel = ctx.todayDayType === 'training' ? 'Training day' : 'Rest day'
+
+  const totalCals = ctx.meals.reduce((s, m) => s + (m.calories ?? 0), 0)
+  const totalProtein = ctx.meals.reduce((s, m) => s + (m.protein ?? 0), 0)
+  const totalCarbs = ctx.meals.reduce((s, m) => s + (m.carbs ?? 0), 0)
+  const totalFats = ctx.meals.reduce((s, m) => s + (m.fats ?? 0), 0)
+
+  const mealLines = ctx.meals
+    .map(
+      (m) =>
+        `  - [${m.meal_name}] ${m.label}: ${m.description ?? 'no description'} ` +
+        `(${m.calories ?? '?'} kcal | ${m.protein ?? '?'}g P | ${m.carbs ?? '?'}g C | ${m.fats ?? '?'}g F)`
+    )
+    .join('\n')
+
+  const configLines = ctx.nutritionConfigs
+    .map((c) => `  - ${c.config_label}: ${c.config_value}${c.config_unit ? ' ' + c.config_unit : ''}`)
+    .join('\n')
+
+  return (
+    `## Nutrition Plan (${dayLabel})\n` +
+    `Daily totals: ~${totalCals} kcal | ${totalProtein.toFixed(0)}g protein | ${totalCarbs.toFixed(0)}g carbs | ${totalFats.toFixed(0)}g fat\n` +
+    (mealLines ? `Meals:\n${mealLines}` : 'No meals loaded.') +
+    '\n\n' +
+    `## Nutrition Config Targets\n` +
+    (configLines || '  (no nutrition configs seeded)')
+  )
+}

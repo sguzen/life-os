@@ -35,9 +35,28 @@ const manageSupplementSchema = z.object({
   reason: z.string(),
 })
 
+const updateMealSchema = z.object({
+  action: z.literal('update_meal'),
+  params: z.object({
+    meal_id: z.string(),
+    meal_name: z.string(),
+    meal_label: z.string(),
+    updates: z.object({
+      label: z.string().optional(),
+      description: z.string().optional(),
+      calories: z.number().int().nonnegative().optional(),
+      protein: z.number().nonnegative().optional(),
+      carbs: z.number().nonnegative().optional(),
+      fats: z.number().nonnegative().optional(),
+    }),
+  }),
+  reason: z.string(),
+})
+
 const confirmBodySchema = z.discriminatedUnion('action', [
   updatePlanConfigSchema,
   manageSupplementSchema,
+  updateMealSchema,
 ])
 
 // ── Handler ────────────────────────────────────────────────────────────────
@@ -223,6 +242,67 @@ export async function POST(req: Request) {
       return Response.json({
         success: true,
         message: `${actionLabel[supplement_action] ?? supplement_action} ${supplement_name ?? supplement_id}.`,
+      })
+    }
+
+    // ── update_meal ───────────────────────────────────────────────
+    if (action === 'update_meal') {
+      const { meal_id, meal_label, updates } = params
+
+      // Fetch current for audit
+      const { data: current } = await supabase
+        .from('meals')
+        .select('*')
+        .eq('id', meal_id)
+        .eq('user_id', user.id)
+        .single()
+
+      if (!current) {
+        return Response.json({ success: false, message: 'Meal not found' }, { status: 404 })
+      }
+
+      const { data, error } = await supabase
+        .from('meals')
+        .update({ ...updates, updated_at: new Date().toISOString() })
+        .eq('id', meal_id)
+        .eq('user_id', user.id)
+        .select()
+        .single()
+
+      if (error) throw error
+
+      // meal_changes audit
+      await supabase.from('meal_changes').insert({
+        meal_id,
+        user_id: user.id,
+        changed_by: changedBy,
+        previous_value: current,
+        new_value: data,
+        reason,
+      })
+
+      // plan_audit_log
+      await supabase.from('plan_audit_log').insert({
+        user_id: user.id,
+        module: 'nutrition',
+        entity_type: 'meal',
+        entity_description: meal_label,
+        action: 'update',
+        field_changed: Object.keys(updates).join(', '),
+        previous_value: JSON.stringify(
+          Object.fromEntries(Object.keys(updates).map((k) => [k, (current as Record<string, unknown>)[k]]))
+        ),
+        new_value: JSON.stringify(updates),
+        reason,
+        changed_by: changedBy,
+      })
+
+      const changeDesc = Object.entries(updates)
+        .map(([k, v]) => `${k}: ${v}`)
+        .join(', ')
+      return Response.json({
+        success: true,
+        message: `I've updated your ${meal_label} to include ${changeDesc}.`,
       })
     }
   } catch (e) {

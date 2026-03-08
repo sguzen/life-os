@@ -1,4 +1,4 @@
-// Nutrition Hub — Today's meal checklist
+// Nutrition Hub — Today's meal checklist (meals from DB)
 
 import type { Metadata } from 'next'
 import Link from 'next/link'
@@ -7,6 +7,7 @@ import {
   getServerNutritionLog,
   getServerSupplementLog,
 } from '@/lib/supabase/nutrition'
+import { getServerMealsForDayType, seedMealsServer } from '@/lib/supabase/meals'
 import { DailyMealChecklist } from '@/components/nutrition/DailyMealChecklist'
 import { Activity, BarChart2, Pill, CalendarDays } from 'lucide-react'
 
@@ -20,14 +21,19 @@ export default async function NutritionPage() {
   const supabase = createClient()
   const today = new Date().toISOString().slice(0, 10)
 
-  const [nutritionLog, supplementLog] = await Promise.all([
-    getServerNutritionLog(supabase, today),
-    getServerSupplementLog(supabase, today),
-  ])
-
-  // Determine if today is a run day (weekday = Mon-Fri assumed run days)
+  // Determine day type
   const dayOfWeek = new Date().getDay()
   const isRunDay = dayOfWeek >= 1 && dayOfWeek <= 5
+  const dayType: 'training' | 'rest' = isRunDay ? 'training' : 'rest'
+
+  // Seed meals on first visit (idempotent)
+  await seedMealsServer()
+
+  const [nutritionLog, supplementLog, meals] = await Promise.all([
+    getServerNutritionLog(supabase, today),
+    getServerSupplementLog(supabase, today),
+    getServerMealsForDayType(supabase, dayType),
+  ])
 
   const dateLabel = new Date().toLocaleDateString('en-GB', {
     weekday: 'long',
@@ -98,6 +104,7 @@ export default async function NutritionPage() {
         dateLabel={dateLabel}
         initialLog={nutritionLog}
         isRunDay={isRunDay}
+        meals={meals}
       />
     </div>
   )

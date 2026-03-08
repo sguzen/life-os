@@ -6,7 +6,13 @@ import { google } from '@ai-sdk/google'
 import { streamText, convertToModelMessages } from 'ai'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
-import { ATHLETE_PROFILE, getGlobalLifeContext, buildGlobalContextBlock } from '@/lib/ai/coaching'
+import {
+  ATHLETE_PROFILE,
+  getGlobalLifeContext,
+  buildGlobalContextBlock,
+  getGlobalContext,
+  buildNutritionContextBlock,
+} from '@/lib/ai/coaching'
 import { buildFullSystemContext } from '@/lib/ai/master-coach'
 
 export const runtime = 'nodejs'
@@ -72,15 +78,17 @@ export async function POST(req: Request) {
   } = await supabase.auth.getUser()
   if (!user) return new Response('Unauthorized', { status: 401 })
 
-  // Build context: fast cross-module summary + full detail block
+  // Build context: fast cross-module summary + nutrition plan + full detail block
   let contextBlock = ''
   try {
-    const [globalCtx, fullCtx] = await Promise.all([
+    const [globalCtx, fullCtx, nutritionCtx] = await Promise.all([
       getGlobalLifeContext(supabase),
       buildFullSystemContext(supabase),
+      getGlobalContext(supabase),
     ])
     const signals = buildGlobalContextBlock(globalCtx)
-    contextBlock = `## Cross-Module Signal Summary\n${signals}\n\n---\n\n${fullCtx}`
+    const nutritionBlock = buildNutritionContextBlock(nutritionCtx)
+    contextBlock = `## Cross-Module Signal Summary\n${signals}\n\n---\n\n${nutritionBlock}\n\n---\n\n${fullCtx}`
   } catch (err) {
     console.error('[life-coach] context build failed:', err)
     contextBlock = '(Context unavailable — answering from conversation only.)'
@@ -312,6 +320,114 @@ ${contextBlock}`
             return { success: true, message: 'Coaching note logged to audit trail.' }
           } catch (e) {
             return { success: false, message: `Failed to log note: ${String(e)}` }
+          }
+        },
+      },
+
+      // ── updateMeal ───────────────────────────────────────────────
+      updateMeal: {
+        description:
+          'Propose an update to a meal definition (description, macros, label). Returns a ' +
+          'proposal the user must confirm before the database is updated. Use this when the user ' +
+          'asks to change what a meal contains, its calories, protein, carbs, or fats.',
+        parameters: z.object({
+          meal_name: z
+            .string()
+            .describe(
+              'The meal_name key, e.g. "meal_breakfast", "meal_lunch", "meal_snack1"'
+            ),
+          updates: z
+            .object({
+              label: z.string().optional().describe('New display label'),
+              description: z.string().optional().describe('New description of the meal contents'),
+              calories: z.number().int().nonnegative().optional().describe('New calorie target'),
+              protein: z.number().nonnegative().optional().describe('Protein in grams'),
+              carbs: z.number().nonnegative().optional().describe('Carbohydrates in grams'),
+              fats: z.number().nonnegative().optional().describe('Fats in grams'),
+            })
+            .describe('Fields to update — only include fields being changed'),
+          reason: z
+            .string()
+            .describe('Why this meal change is proposed (include any relevant context)'),
+        }),
+        execute: async ({ meal_name, updates, reason }) => {
+          try {
+            const { data: meal } = await supabase
+              .from('meals')
+              .select('id, label, description, calories, protein, carbs, fats')
+              .eq('user_id', user.id)
+              .eq('meal_name', meal_name)
+              .limit(1)
+              .single()
+
+            if (!meal) {
+              return {
+                type: 'error' as const,
+                message: `Meal "${meal_name}" not found in your plan. Valid keys: meal_post_run, meal_breakfast, meal_lunch, meal_snack1-4.`,
+              }
+            }
+
+            const changeLines = Object.entries(updates)
+              .map(([k, v]) => `**${k}**: ${(meal as Record<string, unknown>)[k] ?? 'unset'} → ${v}`)
+              .join('\n')
+
+            return {
+              type: 'proposal' as const,
+              action: 'update_meal',
+              displayTitle: `Update ${meal.label}`,
+              displayBody: changeLines,
+              reason,
+              params: {
+                meal_id: meal.id,
+                meal_name,
+                meal_label: meal.label,
+                updates,
+              },
+            }
+          } catch (e) {
+            return { type: 'error' as const, message: `Failed to build proposal: ${String(e)}` }
+          }
+        },
+      },
+
+      // ── addSupplement ────────────────────────────────────────────
+      addSupplement: {
+        description:
+          'Propose adding a new supplement to the user\'s protocol. Returns a proposal the user ' +
+          'must confirm before the supplement is inserted. Use when the user explicitly asks to ' +
+          'add a new supplement.',
+        parameters: z.object({
+          name: z.string().describe('Supplement name, e.g. "Creatine Monohydrate"'),
+          frequency: z
+            .string()
+            .describe('Dosing and frequency, e.g. "5g daily" or "1000mg twice daily"'),
+          timing: z
+            .string()
+            .optional()
+            .describe('When to take it, e.g. "post-workout with food"'),
+          prescribed_for: z
+            .string()
+            .optional()
+            .describe('Goal or condition addressed, e.g. "muscle recovery, strength"'),
+          reason: z.string().describe('Why this supplement is being proposed'),
+        }),
+        execute: async ({ name, frequency, timing, prescribed_for, reason }) => {
+          return {
+            type: 'proposal' as const,
+            action: 'manage_supplement',
+            displayTitle: `Add Supplement: ${name}`,
+            displayBody:
+              `Add **${name}** — ${frequency}` +
+              (timing ? `, take ${timing}` : '') +
+              (prescribed_for ? ` *(for: ${prescribed_for})*` : ''),
+            reason,
+            params: {
+              supplement_action: 'add',
+              name,
+              frequency,
+              timing: timing ?? null,
+              prescribed_for: prescribed_for ?? null,
+            },
           }
         },
       },
