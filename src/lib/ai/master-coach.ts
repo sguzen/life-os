@@ -1,0 +1,279 @@
+// Master AI Coach — full-system context builder and system prompt
+// Understands all modules and can make cross-module changes via tool-calling
+
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { ATHLETE_PROFILE } from './coaching'
+
+// ── System prompt ──────────────────────────────────────────────────────────
+
+export const MASTER_COACH_SYSTEM_PROMPT = `You are the central Life OS coach — a highly capable AI adviser with full visibility into all of ${ATHLETE_PROFILE.sex === 'female' ? 'her' : 'their'} systems: marathon training, nutrition, supplements, habits, and trading.
+
+Athlete profile:
+- Age: ${ATHLETE_PROFILE.age}yo ${ATHLETE_PROFILE.sex}
+- Goal race: ${ATHLETE_PROFILE.race} on ${ATHLETE_PROFILE.raceDate}
+- Target time: ${ATHLETE_PROFILE.targetTime} (${ATHLETE_PROFILE.targetPacePerKm} avg pace)
+- Training paces: Easy ${ATHLETE_PROFILE.trainingPaces.easy} | Tempo ${ATHLETE_PROFILE.trainingPaces.tempo} | VO2max ${ATHLETE_PROFILE.trainingPaces.vo2max} | Long ${ATHLETE_PROFILE.trainingPaces.longRun}
+- Key problem: ${ATHLETE_PROFILE.mainIssue}
+- Resting HR baseline: ${ATHLETE_PROFILE.restingHrBaseline}
+
+Your capabilities:
+- You can read data from ALL modules (running, nutrition, supplements, habits, trading, marathon plan).
+- You can make changes using tools: pause/resume supplements, update plan configuration values.
+- All changes you make are logged to the audit trail automatically.
+- Supplements are prescribed by Dr Emine Ömerağa — you can manage scheduling/timing/pausing but must NOT change medical dosages or diagnoses.
+
+Coaching philosophy:
+- Be direct, data-driven, and cross-domain. Spot patterns across modules (e.g. "poor sleep → slow run → mood dip → bad trading").
+- When asked to make a change, do it immediately with the appropriate tool and explain what you did.
+- Before making a significant change (like pausing a prescribed supplement), confirm intent if the user's message is ambiguous.
+- Format responses with clear sections. Use markdown. Keep responses under 500 words unless doing multi-week analysis.
+- When you use a tool, briefly acknowledge what you changed and why.`
+
+// ── Full-system context builder ────────────────────────────────────────────
+
+export async function buildFullSystemContext(supabase: SupabaseClient): Promise<string> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return '(Not authenticated — no context available.)'
+
+  const today = new Date().toISOString().slice(0, 10)
+  const cutoff14 = new Date()
+  cutoff14.setDate(cutoff14.getDate() - 14)
+  const cutoff7 = new Date()
+  cutoff7.setDate(cutoff7.getDate() - 7)
+  const cutoff14Str = cutoff14.toISOString().slice(0, 10)
+  const cutoff7Str = cutoff7.toISOString().slice(0, 10)
+
+  const [
+    supplementsRes,
+    nutritionRes,
+    habitsRes,
+    habitsLogsRes,
+    runningRes,
+    hrRes,
+    marathonSessionsRes,
+    planConfigsRes,
+    recentAuditRes,
+  ] = await Promise.allSettled([
+    supabase
+      .from('supplements')
+      .select('id, name, frequency, timing, is_active, is_paused, pause_reason, prescribed_for, duration_notes, blood_donation_override')
+      .eq('user_id', user.id)
+      .eq('is_active', true)
+      .order('created_at', { ascending: true }),
+
+    supabase
+      .from('nutrition_logs')
+      .select('log_date, adherence_score, water_ml, has_alcohol, has_fried_food, has_processed_snack')
+      .eq('user_id', user.id)
+      .gte('log_date', cutoff14Str)
+      .order('log_date', { ascending: false }),
+
+    supabase
+      .from('habits')
+      .select('id, name, streak')
+      .eq('user_id', user.id)
+      .eq('is_archived', false),
+
+    supabase
+      .from('habit_logs')
+      .select('habit_id, logged_at')
+      .eq('user_id', user.id)
+      .gte('logged_at', cutoff14.toISOString()),
+
+    supabase
+      .from('running_activities')
+      .select('workout_type, distance_meters, duration_seconds, avg_pace_sec_per_km, avg_hr, started_at, title')
+      .eq('user_id', user.id)
+      .order('started_at', { ascending: false })
+      .limit(7),
+
+    supabase
+      .from('resting_hr_logs')
+      .select('log_date, bpm')
+      .eq('user_id', user.id)
+      .gte('log_date', cutoff7Str)
+      .order('log_date', { ascending: false }),
+
+    supabase
+      .from('training_sessions')
+      .select('session_date, session_type, planned_description, completed, actual_distance_km, actual_duration_min, perceived_effort, coach_notes, flag')
+      .eq('user_id', user.id)
+      .gte('session_date', cutoff7Str)
+      .order('session_date', { ascending: false }),
+
+    supabase
+      .from('plan_configs')
+      .select('module, config_key, config_label, config_value, config_unit')
+      .eq('user_id', user.id)
+      .order('module', { ascending: true }),
+
+    supabase
+      .from('plan_audit_log')
+      .select('changed_at, module, entity_type, action, field_changed, previous_value, new_value, reason, changed_by')
+      .eq('user_id', user.id)
+      .order('changed_at', { ascending: false })
+      .limit(10),
+  ])
+
+  const sections: string[] = []
+
+  // ── Supplements ──────────────────────────────────────────────
+  if (supplementsRes.status === 'fulfilled' && supplementsRes.value.data) {
+    const sups = supplementsRes.value.data
+    const active = sups.filter((s) => !s.is_paused)
+    const paused = sups.filter((s) => s.is_paused)
+
+    const activeLines = active.map((s) => {
+      const timing = s.timing ? ` · ${s.timing}` : ''
+      const forNote = s.prescribed_for ? ` (${s.prescribed_for})` : ''
+      const override = s.blood_donation_override ? ' ⚡ override:daily in recovery' : ''
+      return `- [${s.id}] ${s.name} — ${s.frequency}${timing}${forNote}${override}`
+    })
+    const pausedLines = paused.map(
+      (s) => `- [${s.id}] ${s.name} — PAUSED (${s.pause_reason ?? 'no reason'})`
+    )
+
+    sections.push(
+      `## Supplements (${active.length} active${paused.length ? `, ${paused.length} paused` : ''})\n` +
+        (activeLines.join('\n') || 'None.') +
+        (pausedLines.length ? '\n\n**Paused:**\n' + pausedLines.join('\n') : '') +
+        '\n\n_Note: supplement IDs are shown in brackets — use them when calling tools._'
+    )
+  }
+
+  // ── Supplement log for today ──────────────────────────────────
+  if (supplementsRes.status === 'fulfilled' && supplementsRes.value.data) {
+    const { data: todayLogs } = await supabase
+      .from('supplement_log_entries')
+      .select('supplement_id, taken')
+      .eq('user_id', user.id)
+      .eq('log_date', today)
+    if (todayLogs && todayLogs.length > 0) {
+      const takenIds = new Set(todayLogs.filter((l) => l.taken).map((l) => l.supplement_id))
+      const notTaken = (supplementsRes.value.data ?? [])
+        .filter((s) => !s.is_paused && !takenIds.has(s.id))
+        .map((s) => s.name)
+      sections.push(
+        `## Supplement Adherence Today (${today})\n` +
+          `Taken: ${takenIds.size} of ${(supplementsRes.value.data ?? []).filter((s) => !s.is_paused).length}\n` +
+          (notTaken.length ? `Not yet taken: ${notTaken.join(', ')}` : 'All done!')
+      )
+    }
+  }
+
+  // ── Nutrition ──────────────────────────────────────────────────
+  if (nutritionRes.status === 'fulfilled' && nutritionRes.value.data?.length) {
+    const logs = nutritionRes.value.data
+    const avgScore =
+      logs.reduce((s, l) => s + (l.adherence_score ?? 0), 0) / logs.length
+    const alcoholDays = logs.filter((l) => l.has_alcohol).length
+    const lines = logs
+      .slice(0, 14)
+      .map((l) => {
+        const flags = [
+          l.has_alcohol ? '🍷' : '',
+          l.has_fried_food ? '🍟' : '',
+          l.has_processed_snack ? '🍪' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')
+        const water = l.water_ml != null ? `${l.water_ml}ml` : ''
+        return `- ${l.log_date}: ${l.adherence_score ?? '?'}/100${water ? ` | ${water}` : ''}${flags ? ' ' + flags : ''}`
+      })
+    sections.push(
+      `## Nutrition (last 14 days)\nAvg score: ${avgScore.toFixed(0)}/100 | Alcohol days: ${alcoholDays}\n${lines.join('\n')}`
+    )
+  }
+
+  // ── Habits ─────────────────────────────────────────────────────
+  if (
+    habitsRes.status === 'fulfilled' &&
+    habitsLogsRes.status === 'fulfilled' &&
+    habitsRes.value.data?.length
+  ) {
+    const habits = habitsRes.value.data
+    const logs = habitsLogsRes.value.data ?? []
+    const lines = habits.map((h) => {
+      const completions = logs.filter((l) => l.habit_id === h.id).length
+      const rate = ((completions / 14) * 100).toFixed(0)
+      return `- ${h.name}: ${completions}/14 days (${rate}%) | streak: ${h.streak}`
+    })
+    sections.push(`## Habits (last 14 days)\n${lines.join('\n')}`)
+  }
+
+  // ── Running ─────────────────────────────────────────────────────
+  if (runningRes.status === 'fulfilled' && runningRes.value.data?.length) {
+    const formatPace = (s: number | null) => {
+      if (!s) return 'N/A'
+      const m = Math.floor(s / 60)
+      const sec = Math.round(s % 60)
+      return `${m}:${String(sec).padStart(2, '0')}/km`
+    }
+    const lines = runningRes.value.data.map((a) => {
+      const date = new Date(a.started_at).toLocaleDateString('en-GB', {
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short',
+      })
+      const dist = (a.distance_meters / 1000).toFixed(2) + 'km'
+      const pace = formatPace(a.avg_pace_sec_per_km)
+      const hr = a.avg_hr ? ` HR:${a.avg_hr}` : ''
+      return `- ${date}: ${a.workout_type.toUpperCase()} ${dist} @ ${pace}${hr}`
+    })
+
+    const hrLines =
+      hrRes.status === 'fulfilled' && hrRes.value.data?.length
+        ? hrRes.value.data.map((h) => `- ${h.log_date}: ${h.bpm} bpm`).join('\n')
+        : 'No resting HR data.'
+
+    sections.push(`## Running (last 7 activities)\n${lines.join('\n')}\n\n**Resting HR (last 7 days):**\n${hrLines}`)
+  }
+
+  // ── Marathon Plan ───────────────────────────────────────────────
+  if (marathonSessionsRes.status === 'fulfilled' && marathonSessionsRes.value.data?.length) {
+    const sessions = marathonSessionsRes.value.data
+    const lines = sessions.map((s) => {
+      const done = s.completed ? '✅' : '⬜'
+      const dist = s.actual_distance_km ? ` ${s.actual_distance_km}km` : ''
+      const effort = s.perceived_effort ? ` RPE:${s.perceived_effort}` : ''
+      const flag = s.flag ? ` ⚠️ ${s.flag}` : ''
+      return `- ${s.session_date} ${done} ${s.session_type}${dist}${effort}${flag}`
+    })
+    sections.push(`## Marathon Training Sessions (last 7 days)\n${lines.join('\n')}`)
+  }
+
+  // ── Plan Configs ────────────────────────────────────────────────
+  if (planConfigsRes.status === 'fulfilled' && planConfigsRes.value.data?.length) {
+    const configs = planConfigsRes.value.data
+    const byModule: Record<string, string[]> = {}
+    for (const c of configs) {
+      if (!byModule[c.module]) byModule[c.module] = []
+      const unit = c.config_unit ? ` ${c.config_unit}` : ''
+      byModule[c.module].push(`- ${c.config_key}: ${c.config_value}${unit} (${c.config_label})`)
+    }
+    const moduleBlocks = Object.entries(byModule)
+      .map(([mod, lines]) => `**${mod}:**\n${lines.join('\n')}`)
+      .join('\n\n')
+    sections.push(`## Plan Configurations\n${moduleBlocks}`)
+  }
+
+  // ── Recent Changes ──────────────────────────────────────────────
+  if (recentAuditRes.status === 'fulfilled' && recentAuditRes.value.data?.length) {
+    const entries = recentAuditRes.value.data
+    const lines = entries.map((e) => {
+      const date = new Date(e.changed_at).toLocaleDateString('en-GB', {
+        day: 'numeric',
+        month: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+      const change = e.field_changed
+        ? `${e.field_changed}: ${e.previous_value} → ${e.new_value}`
+        : `${e.action} ${e.entity_type}`
+      return `- ${date} [${e.changed_by}] ${e.module}: ${change}${e.reason ? ` — ${e.reason}` : ''}`
+    })
+    sections.push(`## Recent Changes (audit log)\n${lines.join('\n')}`)
+  }
+
+  return sections.join('\n\n')
+}

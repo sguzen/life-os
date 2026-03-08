@@ -18,6 +18,7 @@ import {
   Salad,
   Timer,
   RefreshCcw,
+  Bot,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
@@ -27,6 +28,7 @@ import { ThemeToggle } from "@/components/theme/theme-toggle";
 const navItems: Array<{ href: string; label: string; icon: React.ElementType; indent?: boolean }> = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/adapt", label: "Adapt", icon: RefreshCcw },
+  { href: "/coach", label: "Coach", icon: Bot },
   { href: "/habits", label: "Habits", icon: Activity },
   { href: "/trading", label: "Trading", icon: TrendingUp },
   { href: "/trading/accountability", label: "Accountability", icon: ShieldCheck, indent: true },
