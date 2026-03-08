@@ -195,5 +195,28 @@ export async function POST(req: NextRequest) {
     if (hrErr) console.error('Insert resting HR error:', hrErr)
   }
 
+  // 11. Auto-link to training_schedule — find a non-rest session for this date
+  //     and attach it to the activity.  Non-fatal: table may not exist yet.
+  const activityDate = startedAt.toISOString().split('T')[0]
+  try {
+    const { data: scheduled } = await supabase
+      .from('training_schedule')
+      .select('id')
+      .eq('user_id', user.id)
+      .eq('date', activityDate)
+      .neq('type', 'rest')
+      .single()
+
+    if (scheduled) {
+      await supabase
+        .from('running_activities')
+        .update({ scheduled_workout_id: scheduled.id })
+        .eq('id', activity.id)
+        .eq('user_id', user.id)
+    }
+  } catch {
+    // training_schedule not yet seeded — non-fatal, activity is already saved
+  }
+
   return NextResponse.json({ activity, lapCount: laps.length }, { status: 201 })
 }

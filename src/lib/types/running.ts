@@ -30,6 +30,7 @@ export interface RunningActivity {
   calories: number | null
   notes: string | null
   fit_filename: string | null
+  scheduled_workout_id: string | null  // FK → training_schedule.id; set automatically on upload
   created_at: string
   updated_at: string
 }
