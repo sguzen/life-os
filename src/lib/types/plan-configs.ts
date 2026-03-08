@@ -1,7 +1,7 @@
 // Plan Configs + Audit Log — TypeScript Types
 
 export type ConfigType = 'number' | 'text' | 'boolean' | 'pace' | 'json'
-export type ChangedBy = 'user' | 'ai_coach' | 'adaptation_engine' | 'system'
+export type ChangedBy = 'user' | 'ai_coach' | 'ai_life_coach' | 'adaptation_engine' | 'system'
 
 export interface PlanConfig {
   id: string

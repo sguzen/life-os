@@ -2,6 +2,7 @@
 // Context builders and system prompts for Gemini-powered coaching
 
 import type { HabitWithLogs } from '@/lib/types'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 // ── Athlete profile (static context) ─────────────────────────────────────────
 export const ATHLETE_PROFILE = {
@@ -289,4 +290,234 @@ ${pausedLines}
 ${ctx.bloodDonationRecoveryActive ? '⚡ **Blood donation recovery active** — Iron override to daily is in effect.\n\n' : ''}## Recent Nutrition Adherence (last 14 days)
 ${adherenceLines}
 `.trim()
+}
+
+// ── Global Life Context ─────────────────────────────────────────────────────
+// Cross-module signal aggregator: feeds the Global Life Coach with distilled
+// data points from all domains so it can spot patterns across trading,
+// running, habits and supplements in one view.
+
+export interface GlobalLifeContext {
+  trading: {
+    recentPnl: number
+    winRate: number
+    ruleBreaks: number
+    activeRiskRules: Array<{ key: string; label: string; value: string }>
+  }
+  running: {
+    latestRestingHr: number | null
+    restingHrSpikeDetected: boolean
+    upcomingRace: { name: string; daysUntil: number } | null
+    recoveryStatus: 'ok' | 'spike' | 'no_data'
+  }
+  habits: {
+    weeklyComplianceRate: number
+    topStreakHabit: string | null
+    failingHabits: string[]
+  }
+  supplements: {
+    activeCount: number
+    takenTodayCount: number
+    totalDueTodayCount: number
+    pendingToday: string[]
+  }
+}
+
+export async function getGlobalLifeContext(supabase: SupabaseClient): Promise<GlobalLifeContext> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not authenticated')
+
+  const today = new Date().toISOString().slice(0, 10)
+  const cutoff7 = new Date()
+  cutoff7.setDate(cutoff7.getDate() - 7)
+  const cutoff7Str = cutoff7.toISOString().slice(0, 10)
+  const weekAgoIso = cutoff7.toISOString()
+
+  const [
+    tradesRes,
+    hrRes,
+    racesRes,
+    habitsRes,
+    habitLogsRes,
+    supplementsRes,
+    planConfigsRes,
+    supplementLogsRes,
+  ] = await Promise.allSettled([
+    supabase
+      .from('trades')
+      .select('net_pnl, outcome, followed_rules')
+      .eq('user_id', user.id)
+      .gte('entry_time', weekAgoIso)
+      .order('entry_time', { ascending: false }),
+
+    supabase
+      .from('resting_hr_logs')
+      .select('log_date, bpm, is_spike')
+      .eq('user_id', user.id)
+      .gte('log_date', cutoff7Str)
+      .order('log_date', { ascending: false }),
+
+    supabase
+      .from('race_targets')
+      .select('name, race_date')
+      .eq('user_id', user.id)
+      .gte('race_date', today)
+      .order('race_date', { ascending: true })
+      .limit(1),
+
+    supabase
+      .from('habits')
+      .select('id, name, streak')
+      .eq('user_id', user.id)
+      .eq('is_archived', false),
+
+    supabase
+      .from('habit_logs')
+      .select('habit_id')
+      .eq('user_id', user.id)
+      .gte('logged_at', weekAgoIso),
+
+    supabase
+      .from('supplements')
+      .select('id, name, is_paused')
+      .eq('user_id', user.id)
+      .eq('is_active', true),
+
+    supabase
+      .from('plan_configs')
+      .select('config_key, config_label, config_value')
+      .eq('user_id', user.id)
+      .eq('module', 'trading')
+      .like('config_key', 'gate_%'),
+
+    supabase
+      .from('supplement_log_entries')
+      .select('supplement_id, taken')
+      .eq('user_id', user.id)
+      .eq('log_date', today),
+  ])
+
+  // ── Trading ──────────────────────────────────────────────────────
+  const trades = tradesRes.status === 'fulfilled' ? (tradesRes.value.data ?? []) : []
+  const recentPnl = trades.reduce((s, t) => s + (t.net_pnl ?? 0), 0)
+  const wins = trades.filter((t) => t.outcome === 'win').length
+  const winRate = trades.length ? (wins / trades.length) * 100 : 0
+  const ruleBreaks = trades.filter((t) => t.followed_rules === false).length
+  const activeRiskRules =
+    planConfigsRes.status === 'fulfilled'
+      ? (planConfigsRes.value.data ?? []).map((c) => ({
+          key: c.config_key,
+          label: c.config_label,
+          value: c.config_value,
+        }))
+      : []
+
+  // ── Running ──────────────────────────────────────────────────────
+  const hrData = hrRes.status === 'fulfilled' ? (hrRes.value.data ?? []) : []
+  const latestHr = hrData[0] ?? null
+  const restingHrSpikeDetected = hrData.some((h) => h.is_spike)
+  const raceData = racesRes.status === 'fulfilled' ? (racesRes.value.data ?? []) : []
+  const upcomingRace = raceData[0]
+    ? {
+        name: raceData[0].name,
+        daysUntil: Math.ceil(
+          (new Date(raceData[0].race_date).getTime() - Date.now()) / 86400000
+        ),
+      }
+    : null
+
+  // ── Habits ───────────────────────────────────────────────────────
+  const habits = habitsRes.status === 'fulfilled' ? (habitsRes.value.data ?? []) : []
+  const habitLogs = habitLogsRes.status === 'fulfilled' ? (habitLogsRes.value.data ?? []) : []
+  const habitCompletions = habits.map((h) => ({
+    name: h.name,
+    streak: h.streak ?? 0,
+    completions: habitLogs.filter((l) => l.habit_id === h.id).length,
+  }))
+  const totalPossible = habits.length * 7
+  const totalCompleted = habitCompletions.reduce((s, h) => s + h.completions, 0)
+  const weeklyComplianceRate = totalPossible > 0 ? (totalCompleted / totalPossible) * 100 : 0
+  const sorted = [...habitCompletions].sort((a, b) => b.streak - a.streak)
+  const topStreakHabit = sorted[0]?.name ?? null
+  const failingHabits = habitCompletions
+    .filter((h) => h.completions < 3) // <3/7 days = at-risk
+    .map((h) => h.name)
+
+  // ── Supplements ──────────────────────────────────────────────────
+  const sups = supplementsRes.status === 'fulfilled' ? (supplementsRes.value.data ?? []) : []
+  const activeSups = sups.filter((s) => !s.is_paused)
+  const supLogs = supplementLogsRes.status === 'fulfilled' ? (supplementLogsRes.value.data ?? []) : []
+  const takenIds = new Set(supLogs.filter((l) => l.taken).map((l) => l.supplement_id))
+  const pendingToday = activeSups.filter((s) => !takenIds.has(s.id)).map((s) => s.name)
+
+  return {
+    trading: { recentPnl, winRate, ruleBreaks, activeRiskRules },
+    running: {
+      latestRestingHr: latestHr?.bpm ?? null,
+      restingHrSpikeDetected,
+      upcomingRace,
+      recoveryStatus: restingHrSpikeDetected ? 'spike' : latestHr ? 'ok' : 'no_data',
+    },
+    habits: { weeklyComplianceRate, topStreakHabit, failingHabits },
+    supplements: {
+      activeCount: activeSups.length,
+      takenTodayCount: takenIds.size,
+      totalDueTodayCount: activeSups.length,
+      pendingToday,
+    },
+  }
+}
+
+export function buildGlobalContextBlock(ctx: GlobalLifeContext): string {
+  const sections: string[] = []
+
+  // Trading
+  const pnlStr =
+    ctx.trading.recentPnl >= 0
+      ? `+$${ctx.trading.recentPnl.toFixed(2)}`
+      : `-$${Math.abs(ctx.trading.recentPnl).toFixed(2)}`
+  const riskRuleLines = ctx.trading.activeRiskRules
+    .map((r) => `  - ${r.label}: ${r.value}`)
+    .join('\n')
+  sections.push(
+    `## Trading (last 7 days)\n` +
+      `Net P&L: ${pnlStr} | Win rate: ${ctx.trading.winRate.toFixed(0)}% | Rule breaks: ${ctx.trading.ruleBreaks}\n` +
+      (riskRuleLines ? `Active risk gates:\n${riskRuleLines}` : 'No gate configs loaded.')
+  )
+
+  // Running / Recovery
+  const hrNote = ctx.running.restingHrSpikeDetected
+    ? `⚠️ Resting HR SPIKE detected (latest: ${ctx.running.latestRestingHr} bpm) — recovery at risk`
+    : ctx.running.latestRestingHr
+      ? `Resting HR: ${ctx.running.latestRestingHr} bpm (normal range)`
+      : 'Resting HR: no data this week'
+  const raceNote = ctx.running.upcomingRace
+    ? `Upcoming race: ${ctx.running.upcomingRace.name} in ${ctx.running.upcomingRace.daysUntil} days`
+    : 'No upcoming races logged'
+  sections.push(`## Running / Recovery\n${hrNote}\n${raceNote}`)
+
+  // Habits
+  const failNote =
+    ctx.habits.failingHabits.length
+      ? `Failing habits (<3/7 days): ${ctx.habits.failingHabits.join(', ')}`
+      : 'All habits on track this week'
+  sections.push(
+    `## Habits (last 7 days)\n` +
+      `Weekly compliance: ${ctx.habits.weeklyComplianceRate.toFixed(0)}%\n` +
+      `Top streak: ${ctx.habits.topStreakHabit ?? 'none'}\n` +
+      failNote
+  )
+
+  // Supplements
+  const supNote =
+    ctx.supplements.pendingToday.length
+      ? `Not yet taken today: ${ctx.supplements.pendingToday.join(', ')}`
+      : 'All supplements taken today ✓'
+  sections.push(
+    `## Supplements\n` +
+      `Active: ${ctx.supplements.activeCount} | Taken today: ${ctx.supplements.takenTodayCount}/${ctx.supplements.totalDueTodayCount}\n` +
+      supNote
+  )
+
+  return sections.join('\n\n')
 }
