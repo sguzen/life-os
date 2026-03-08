@@ -1,9 +1,11 @@
 'use client'
 
-import { ChevronDown, ChevronUp } from 'lucide-react'
+import { ChevronDown, ChevronUp, Pencil } from 'lucide-react'
 import { useState } from 'react'
 import type { MealStatus, LunchCarbChoice, FruitChoice } from '@/lib/types/nutrition'
 import { LUNCH_CARB_LABELS, FRUIT_LABELS, MEAL_DETAILS } from '@/lib/types/nutrition'
+import type { Meal } from '@/lib/supabase/meals'
+import { MealEditDialog } from './MealEditDialog'
 
 const STATUS_CYCLE: MealStatus[] = ['pending', 'complete', 'partial', 'skipped', 'modified']
 
@@ -19,6 +21,8 @@ interface MealCardProps {
   mealKey: string
   icon: string
   label: string
+  description?: string | null  // from DB meals table (overrides MEAL_DETAILS fallback)
+  dbMeal?: Meal | null         // full DB row — enables edit dialog
   status: MealStatus
   note: string
   lunchCarbChoice?: LunchCarbChoice | null
@@ -27,6 +31,7 @@ interface MealCardProps {
   onNoteChange: (note: string) => void
   onLunchCarbChange?: (choice: LunchCarbChoice) => void
   onFruitChange?: (choice: FruitChoice) => void
+  onMealUpdated?: (updated: Meal) => void
   disabled?: boolean
 }
 
@@ -34,6 +39,8 @@ export function MealCard({
   mealKey,
   icon,
   label,
+  description,
+  dbMeal,
   status,
   note,
   lunchCarbChoice,
@@ -42,13 +49,23 @@ export function MealCard({
   onNoteChange,
   onLunchCarbChange,
   onFruitChange,
+  onMealUpdated,
   disabled,
 }: MealCardProps) {
   const [expanded, setExpanded] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
+  const [currentMeal, setCurrentMeal] = useState<Meal | null>(dbMeal ?? null)
   const display = STATUS_DISPLAY[status]
   const showNoteField = status === 'partial' || status === 'skipped' || status === 'modified'
   const isLunch = mealKey === 'meal_lunch'
   const isSnack4 = mealKey === 'meal_snack4'
+
+  // Use DB description if available, fall back to static MEAL_DETAILS
+  const mealDescription = currentMeal?.description ?? description ?? MEAL_DETAILS[mealKey]
+  // Macro summary line
+  const macroLine = currentMeal && (currentMeal.calories || currentMeal.protein)
+    ? `${currentMeal.calories ?? '?'} kcal · ${currentMeal.protein ?? '?'}g P · ${currentMeal.carbs ?? '?'}g C · ${currentMeal.fats ?? '?'}g F`
+    : null
 
   function cycleStatus() {
     const idx = STATUS_CYCLE.indexOf(status)
@@ -58,7 +75,20 @@ export function MealCard({
     else if (next !== 'pending') setExpanded(true)
   }
 
+  function handleMealSaved(updated: Meal) {
+    setCurrentMeal(updated)
+    onMealUpdated?.(updated)
+  }
+
   return (
+    <>
+      {editOpen && currentMeal && (
+        <MealEditDialog
+          meal={currentMeal}
+          onClose={() => setEditOpen(false)}
+          onSaved={handleMealSaved}
+        />
+      )}
     <div className={`rounded-lg border border-white/8 ${display.bg} transition-colors`}>
       <div className="flex items-center gap-3 px-3 py-2.5">
         <span className="text-base shrink-0">{icon}</span>
@@ -68,9 +98,26 @@ export function MealCard({
           className="flex-1 text-left min-w-0"
           disabled={disabled}
         >
-          <span className="text-sm font-medium text-white/80 truncate block">{label}</span>
-          <span className="text-xs text-white/35">{MEAL_DETAILS[mealKey]}</span>
+          <span className="text-sm font-medium text-white/80 truncate block">
+            {currentMeal?.label ?? label}
+          </span>
+          <span className="text-xs text-white/35 truncate block">{mealDescription}</span>
+          {macroLine && (
+            <span className="text-xs text-white/25 truncate block">{macroLine}</span>
+          )}
         </button>
+
+        {/* Manual edit button */}
+        {currentMeal && (
+          <button
+            onClick={() => setEditOpen(true)}
+            disabled={disabled}
+            title="Edit meal"
+            className="shrink-0 rounded-md p-1.5 text-white/25 hover:text-white/60 hover:bg-white/5 transition-colors"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+        )}
 
         <button
           onClick={cycleStatus}
@@ -161,5 +208,6 @@ export function MealCard({
         </div>
       )}
     </div>
+    </>
   )
 }

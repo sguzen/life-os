@@ -17,6 +17,7 @@ import type {
   FruitChoice,
 } from '@/lib/types/nutrition'
 import { MEAL_ICONS, MEAL_LABELS } from '@/lib/types/nutrition'
+import type { Meal } from '@/lib/supabase/meals'
 
 const MEAL_KEYS = [
   'meal_post_run',
@@ -33,6 +34,7 @@ interface DailyMealChecklistProps {
   dateLabel: string
   initialLog: NutritionLog | null
   isRunDay?: boolean
+  meals?: Meal[]  // DB meal definitions; falls back to static constants if empty
 }
 
 type LogState = {
@@ -82,7 +84,12 @@ export function DailyMealChecklist({
   dateLabel,
   initialLog,
   isRunDay,
+  meals = [],
 }: DailyMealChecklistProps) {
+  // Build meal lookup by meal_name for quick access in render
+  const [mealMap, setMealMap] = useState<Record<string, Meal>>(() =>
+    Object.fromEntries(meals.map((m) => [m.meal_name, m]))
+  )
   const [log, setLog] = useState<LogState>(initState(initialLog))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -186,25 +193,33 @@ export function DailyMealChecklist({
       {/* Adherence score bar */}
       <AdherenceScore score={score} />
 
-      {/* Meal cards */}
+      {/* Meal cards — use DB-derived meal list if available, else fall back to static keys */}
       <div className="space-y-2">
-        {MEAL_KEYS.map((mealKey) => (
-          <MealCard
-            key={mealKey}
-            mealKey={mealKey}
-            icon={MEAL_ICONS[mealKey]}
-            label={MEAL_LABELS[mealKey]}
-            status={log[mealKey] as MealStatus}
-            note={log.meal_notes[mealKey] ?? ''}
-            lunchCarbChoice={mealKey === 'meal_lunch' ? log.meal_lunch_carb_choice : undefined}
-            fruitChoice={mealKey === 'meal_snack4' ? log.meal_snack4_fruit : undefined}
-            onStatusChange={(s) => updateMealStatus(mealKey, s)}
-            onNoteChange={(n) => updateMealNote(mealKey, n)}
-            onLunchCarbChange={mealKey === 'meal_lunch' ? updateLunchCarb : undefined}
-            onFruitChange={mealKey === 'meal_snack4' ? updateFruitChoice : undefined}
-            disabled={saving}
-          />
-        ))}
+        {(meals.length > 0 ? meals.map((m) => m.meal_name) : MEAL_KEYS).map((mealKey) => {
+          const dbMeal = mealMap[mealKey] ?? null
+          return (
+            <MealCard
+              key={mealKey}
+              mealKey={mealKey}
+              icon={dbMeal?.icon ?? MEAL_ICONS[mealKey]}
+              label={dbMeal?.label ?? MEAL_LABELS[mealKey]}
+              description={dbMeal?.description}
+              dbMeal={dbMeal}
+              status={log[mealKey as keyof typeof log] as MealStatus}
+              note={log.meal_notes[mealKey] ?? ''}
+              lunchCarbChoice={mealKey === 'meal_lunch' ? log.meal_lunch_carb_choice : undefined}
+              fruitChoice={mealKey === 'meal_snack4' ? log.meal_snack4_fruit : undefined}
+              onStatusChange={(s) => updateMealStatus(mealKey as (typeof MEAL_KEYS)[number], s)}
+              onNoteChange={(n) => updateMealNote(mealKey, n)}
+              onLunchCarbChange={mealKey === 'meal_lunch' ? updateLunchCarb : undefined}
+              onFruitChange={mealKey === 'meal_snack4' ? updateFruitChoice : undefined}
+              onMealUpdated={(updated) =>
+                setMealMap((prev) => ({ ...prev, [mealKey]: updated }))
+              }
+              disabled={saving}
+            />
+          )
+        })}
       </div>
 
       {/* Water tracker */}
