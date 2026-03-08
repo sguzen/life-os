@@ -7,7 +7,7 @@ import {
   LayoutDashboard,
   Activity,
   TrendingUp,
-  Footprints,
+  Trophy,
   Wallet,
   BookOpen,
   FolderKanban,
@@ -16,7 +16,6 @@ import {
   X,
   ShieldCheck,
   Salad,
-  Timer,
   RefreshCcw,
   Bot,
 } from "lucide-react";
@@ -32,8 +31,7 @@ const navItems: Array<{ href: string; label: string; icon: React.ElementType; in
   { href: "/habits", label: "Habits", icon: Activity },
   { href: "/trading", label: "Trading", icon: TrendingUp },
   { href: "/trading/accountability", label: "Accountability", icon: ShieldCheck, indent: true },
-  { href: "/running", label: "Running", icon: Footprints },
-  { href: "/marathon", label: "Marathon", icon: Timer },
+  { href: "/athletics", label: "Athletics", icon: Trophy },
   { href: "/nutrition", label: "Nutrition", icon: Salad },
   { href: "/finance", label: "Finance", icon: Wallet },
   { href: "/books", label: "Books", icon: BookOpen },
@@ -51,7 +49,10 @@ function NavLinks({ pathname, onNavigate }: { pathname: string; onNavigate?: () 
           className={cn(
             "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
             indent && "ml-4 text-xs",
-            pathname === href || (indent && pathname.startsWith(href))
+            pathname === href ||
+            (indent && pathname.startsWith(href)) ||
+            // Athletics covers /running/* and /marathon/* subroutes
+            (href === '/athletics' && (pathname.startsWith('/running') || pathname.startsWith('/marathon')))
               ? "bg-accent text-accent-foreground"
               : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
           )}
