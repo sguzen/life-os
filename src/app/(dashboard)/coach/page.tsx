@@ -7,6 +7,7 @@
 import { useState, useEffect } from 'react'
 import { Bot, Pill, Settings, TrendingUp, Activity, BarChart2 } from 'lucide-react'
 import { CoachChat } from '@/components/ai/coach-chat'
+import { MorningCheckin } from '@/components/morning/MorningCheckin'
 import type { UIMessage } from 'ai'
 
 const SESSION_STORAGE_KEY = 'life-os-coach-session-id'
@@ -85,6 +86,9 @@ export default function CoachPage() {
           Ask questions or request changes — it can pause supplements, update plan configs, and more.
         </p>
       </div>
+
+      {/* Morning Check-In */}
+      <MorningCheckin />
 
       {/* Capabilities grid */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
