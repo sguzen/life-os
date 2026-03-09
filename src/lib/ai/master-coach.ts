@@ -23,6 +23,18 @@ Your capabilities:
 - All changes you make are logged to the audit trail automatically.
 - Supplements are prescribed by Dr Emine Ömerağa — you can manage scheduling/timing/pausing but must NOT change medical dosages or diagnoses.
 
+Your tools:
+- generate_morning_briefing: surface or create the daily readiness briefing
+- evaluate_training_session: analyse a completed training session vs plan
+- nutrition_summary: fetch and interpret today's nutrition tracking
+- trading_session_summary: fetch today's trading performance and rule compliance
+- create_task / complete_task / get_tasks: manage the user's task list
+- pause_supplement / resume_supplement: manage supplement schedule
+- update_plan_config: modify training paces, nutrition targets, thresholds
+- get_recent_changes: show audit log of recent coach-made changes
+
+Use tools proactively. If the user says "how was my day?" — call evaluate_training_session AND trading_session_summary AND nutrition_summary in parallel (multiple tool calls in one step) and synthesise the results. The user should never have to ask three separate questions.
+
 Coaching philosophy:
 - Be direct, data-driven, and cross-domain. Spot patterns across modules (e.g. "poor sleep → slow run → mood dip → bad trading").
 - Morning logs contain daily readiness data: RHR, sleep, energy, mood, body readiness. Cross-reference these with training performance and trading outcomes. If recent logs show declining energy or HR spikes, proactively flag it.
@@ -30,18 +42,26 @@ Coaching philosophy:
 - Before making a significant change (like pausing a prescribed supplement), confirm intent if the user's message is ambiguous.
 - You can create tasks for the user using the create_task tool. When a user mentions something they need to do, remember, or follow up on, proactively offer to add it as a task. Always confirm after creating: "Added to your tasks: [title] for [date]."
 - You can see all pending tasks in context. Reference them when relevant — e.g. if user asks about today's plan, include their pending tasks.
-- You can evaluate a completed training session using the evaluate_training_session tool. Use it when asked to review, rate, or analyse a session. The evaluation includes a Verdict / Analysis / Next 24h structure and sets a flag (ok/warning/rest) on the session.
-- Marathon sessions in context include a [flag] and first 80 chars of coach notes where available. Use these to spot patterns across sessions.
-- Proactive flags the UI may surface to the user: alcohol_yesterday (suggest reduced position size for trading that day), low_energy_pattern (3+ days avg energy < 3 — suggest recovery week or modified training load), unlogged_training (remind user to log their session after completion).
-- You have full visibility across all time-of-day contexts. The user may message you at 4am before a run, at 9am during trading, or at 10pm reviewing their day. Adapt your tone and focus accordingly.
+- Marathon sessions in context include a [flag] and first 80 chars of coach notes. Use these to spot patterns.
+- Proactive flags: alcohol_yesterday (suggest reduced position size for trading), low_energy_pattern (3+ days avg energy < 3 — suggest recovery week), unlogged_training (remind user to log their session).
+- You have full visibility across all time-of-day contexts. The user may message at 4am before a run, 9am during trading, or 10pm reviewing the day. Adapt tone accordingly.
 - Format responses with clear sections. Use markdown. Keep responses under 500 words unless doing multi-week analysis.
 - When you use a tool, briefly acknowledge what you changed and why.`
 
 // ── Full-system context builder ────────────────────────────────────────────
 
-export async function buildFullSystemContext(supabase: SupabaseClient): Promise<string> {
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return '(Not authenticated — no context available.)'
+export async function buildFullSystemContext(
+  supabase: SupabaseClient,
+  overrideUserId?: string,
+): Promise<string> {
+  let userId: string
+  if (overrideUserId) {
+    userId = overrideUserId
+  } else {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return '(Not authenticated — no context available.)'
+    userId = user.id
+  }
 
   const today = new Date().toISOString().slice(0, 10)
   const cutoff14 = new Date()
@@ -69,74 +89,74 @@ export async function buildFullSystemContext(supabase: SupabaseClient): Promise<
     supabase
       .from('supplements')
       .select('id, name, frequency, timing, is_active, is_paused, pause_reason, prescribed_for, duration_notes, blood_donation_override')
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
       .eq('is_active', true)
       .order('created_at', { ascending: true }),
 
     supabase
       .from('nutrition_logs')
       .select('log_date, adherence_score, water_ml, has_alcohol, has_fried_food, has_processed_snack')
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
       .gte('log_date', cutoff14Str)
       .order('log_date', { ascending: false }),
 
     supabase
       .from('habits')
       .select('id, name, streak')
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
       .eq('is_archived', false),
 
     supabase
       .from('habit_logs')
       .select('habit_id, logged_at')
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
       .gte('logged_at', cutoff14.toISOString()),
 
     supabase
       .from('running_activities')
       .select('workout_type, distance_meters, duration_seconds, avg_pace_sec_per_km, avg_hr, started_at, title')
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
       .order('started_at', { ascending: false })
       .limit(7),
 
     supabase
       .from('resting_hr_logs')
       .select('log_date, bpm')
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
       .gte('log_date', cutoff7Str)
       .order('log_date', { ascending: false }),
 
     supabase
       .from('training_sessions')
       .select('session_date, planned_type, planned_description, status, actual_km, actual_duration_min, perceived_effort, went_too_fast, coach_notes, flag')
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
       .gte('session_date', cutoff7Str)
       .order('session_date', { ascending: false }),
 
     supabase
       .from('plan_configs')
       .select('module, config_key, config_label, config_value, config_unit')
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
       .order('module', { ascending: true }),
 
     supabase
       .from('plan_audit_log')
       .select('changed_at, module, entity_type, action, field_changed, previous_value, new_value, reason, changed_by')
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
       .order('changed_at', { ascending: false })
       .limit(10),
 
     supabase
       .from('morning_logs')
       .select('log_date, resting_hr_bpm, sleep_hours, sleep_quality, energy_level, mood, body_readiness, woke_easily, had_dreams, dream_quality, notes')
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
       .gte('log_date', cutoff14Str)
       .order('log_date', { ascending: false }),
 
     supabase
       .from('coach_tasks')
       .select('id, title, notes, due_date, due_time, recurrence, module, completed_at, source')
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
       .or(`due_date.is.null,due_date.lte.${nextWeekStr}`)
       .is('completed_at', null)
       .order('due_date', { ascending: true, nullsFirst: false })
@@ -174,7 +194,7 @@ export async function buildFullSystemContext(supabase: SupabaseClient): Promise<
     const { data: todayLogs } = await supabase
       .from('supplement_log_entries')
       .select('supplement_id, taken')
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
       .eq('log_date', today)
     if (todayLogs && todayLogs.length > 0) {
       const takenIds = new Set(todayLogs.filter((l) => l.taken).map((l) => l.supplement_id))

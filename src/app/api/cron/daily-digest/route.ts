@@ -7,6 +7,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { google } from '@ai-sdk/google'
 import { generateText } from 'ai'
 import webpush from 'web-push'
+// Service role client used here to query all users' push subscriptions and training sessions
+// without a user session (cron runs server-side with no auth cookie). Never use in browser code.
 import { createServiceClient } from '@/lib/supabase/service'
 
 export const runtime = 'nodejs'
