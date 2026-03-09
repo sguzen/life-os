@@ -68,7 +68,7 @@ Self-grade: ${formData.session_grade}
 Tomorrow's focus: ${formData.tomorrows_focus}`
 
   const result = streamText({
-    model: google('gemini-2.5-flash'),
+    model: google('gemini-2.5-pro'),
     system: systemPrompt,
     messages: [{ role: 'user', content: userMessage }],
     maxOutputTokens: 500,

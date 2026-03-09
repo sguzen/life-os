@@ -43,7 +43,7 @@ Notes: ${formData.feeling_notes || 'None'}
 ${failReasons.length > 0 ? `Fail reasons: ${failReasons.join(', ')}` : ''}`
 
   const result = streamText({
-    model: google('gemini-2.5-flash'),
+    model: google('gemini-2.5-pro'),
     system: systemPrompt,
     messages: [{ role: 'user', content: userMessage }],
     maxOutputTokens: 300,

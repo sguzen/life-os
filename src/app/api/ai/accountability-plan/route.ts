@@ -54,7 +54,7 @@ Conviction Lock: ${formData.conviction_lock ? 'YES — committed to ignore exter
   }
 
   const result = streamText({
-    model: google('gemini-2.5-flash'),
+    model: google('gemini-2.5-pro'),
     system: systemPrompt,
     messages,
     maxOutputTokens: 400,

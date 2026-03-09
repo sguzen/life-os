@@ -151,7 +151,7 @@ ${tomorrowContext}
 Give me my daily nutrition coaching.`
 
   const result = streamText({
-    model: google('gemini-2.5-flash'),
+    model: google('gemini-2.5-pro'),
     system: systemPrompt,
     messages: [{ role: 'user', content: userMessage }],
     maxOutputTokens: 400,
