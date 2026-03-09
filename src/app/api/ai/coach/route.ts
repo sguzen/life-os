@@ -7,6 +7,7 @@ import { streamText, convertToModelMessages } from 'ai'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 import { MASTER_COACH_SYSTEM_PROMPT, buildFullSystemContext } from '@/lib/ai/master-coach'
+import { evaluateTrainingSession } from '@/lib/ai/training-evaluation'
 import type { UIMessage } from 'ai'
 
 export const runtime = 'nodejs'
@@ -448,6 +449,48 @@ export async function POST(req: Request) {
             return { tasks, count: tasks.length, message: `Found ${tasks.length} task(s).` }
           } catch (e) {
             return { tasks: [], count: 0, message: `Failed to fetch tasks: ${String(e)}` }
+          }
+        },
+      },
+
+      // ── Training eval tool ──────────────────────────────────────
+
+      evaluate_training_session: {
+        description:
+          'Run the AI coach evaluation on a completed training session. ' +
+          'Use when the user asks "evaluate my run", "what did you think of my session", ' +
+          '"rate my training today", or similar. ' +
+          'If no session_id is provided, evaluates the most recent completed session.',
+        parameters: z.object({
+          session_id: z.string().optional().describe('UUID of the training session to evaluate. If omitted, the most recent completed session is used.'),
+        }),
+        execute: async ({ session_id }) => {
+          try {
+            let targetId = session_id
+
+            if (!targetId) {
+              const { data: latest } = await supabase
+                .from('training_sessions')
+                .select('id, session_date, planned_type')
+                .eq('user_id', user.id)
+                .neq('status', 'pending')
+                .order('session_date', { ascending: false })
+                .limit(1)
+                .single()
+
+              if (!latest) return { success: false, message: 'No completed sessions found to evaluate.' }
+              targetId = latest.id
+            }
+
+            const result = await evaluateTrainingSession(supabase, targetId, user.id)
+            return {
+              success: true,
+              flag: result.flag,
+              evaluation: result.evaluation,
+              message: `Session evaluated (flag: ${result.flag}).`,
+            }
+          } catch (e) {
+            return { success: false, message: `Evaluation failed: ${String(e)}` }
           }
         },
       },

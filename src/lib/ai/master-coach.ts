@@ -30,6 +30,8 @@ Coaching philosophy:
 - Before making a significant change (like pausing a prescribed supplement), confirm intent if the user's message is ambiguous.
 - You can create tasks for the user using the create_task tool. When a user mentions something they need to do, remember, or follow up on, proactively offer to add it as a task. Always confirm after creating: "Added to your tasks: [title] for [date]."
 - You can see all pending tasks in context. Reference them when relevant — e.g. if user asks about today's plan, include their pending tasks.
+- You can evaluate a completed training session using the evaluate_training_session tool. Use it when asked to review, rate, or analyse a session. The evaluation includes a Verdict / Analysis / Next 24h structure and sets a flag (ok/warning/rest) on the session.
+- Marathon sessions in context include a [flag] and first 80 chars of coach notes where available. Use these to spot patterns across sessions.
 - Format responses with clear sections. Use markdown. Keep responses under 500 words unless doing multi-week analysis.
 - When you use a tool, briefly acknowledge what you changed and why.`
 
@@ -104,7 +106,7 @@ export async function buildFullSystemContext(supabase: SupabaseClient): Promise<
 
     supabase
       .from('training_sessions')
-      .select('session_date, session_type, planned_description, completed, actual_distance_km, actual_duration_min, perceived_effort, coach_notes, flag')
+      .select('session_date, planned_type, planned_description, status, actual_km, actual_duration_min, perceived_effort, went_too_fast, coach_notes, flag')
       .eq('user_id', user.id)
       .gte('session_date', cutoff7Str)
       .order('session_date', { ascending: false }),
@@ -256,12 +258,23 @@ export async function buildFullSystemContext(supabase: SupabaseClient): Promise<
   // ── Marathon Plan ───────────────────────────────────────────────
   if (marathonSessionsRes.status === 'fulfilled' && marathonSessionsRes.value.data?.length) {
     const sessions = marathonSessionsRes.value.data
-    const lines = sessions.map((s) => {
-      const done = s.completed ? '✅' : '⬜'
-      const dist = s.actual_distance_km ? ` ${s.actual_distance_km}km` : ''
+    const lines = sessions.map((s: {
+      session_date: string
+      planned_type: string
+      status: string
+      actual_km: number | null
+      perceived_effort: number | null
+      went_too_fast: boolean
+      coach_notes: string | null
+      flag: string | null
+    }) => {
+      const done = s.status === 'completed' || s.status === 'modified' ? '✅' : s.status === 'skipped' ? '❌' : '⬜'
+      const dist = s.actual_km ? ` ${s.actual_km}km` : ''
       const effort = s.perceived_effort ? ` RPE:${s.perceived_effort}` : ''
-      const flag = s.flag ? ` ⚠️ ${s.flag}` : ''
-      return `- ${s.session_date} ${done} ${s.session_type}${dist}${effort}${flag}`
+      const fast = s.went_too_fast ? ' ⚠️ too fast' : ''
+      const flagStr = s.flag ? ` [${s.flag}]` : ''
+      const noteSnippet = s.coach_notes ? `\n  Coach: ${s.coach_notes.slice(0, 80)}…` : ''
+      return `- ${s.session_date} ${done} ${s.planned_type}${dist}${effort}${fast}${flagStr}${noteSnippet}`
     })
     sections.push(`## Marathon Training Sessions (last 7 days)\n${lines.join('\n')}`)
   }

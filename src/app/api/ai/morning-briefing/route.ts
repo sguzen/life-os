@@ -23,6 +23,7 @@ Skip this section if fewer than 3 days of history exist.
 
 ## Today's Focus
 - Training: [what's planned today, or rest day]
+- Recovery: [reference yesterday's session if warning/rest flag, or high RPE, e.g. "Yesterday's tempo was hard (RPE 8) — prioritise easy effort today"]
 - Tasks: [list any due tasks, or "Nothing scheduled"]
 - Nutrition: [any flag based on yesterday, e.g. "alcohol yesterday — hydrate well"]
 
@@ -75,19 +76,29 @@ export async function POST(req: Request) {
   const todayStr = log.log_date
   const { data: trainSession } = await supabase
     .from('training_sessions')
-    .select('session_type, planned_description, completed')
+    .select('planned_type, planned_description, status')
     .eq('user_id', user.id)
     .eq('session_date', todayStr)
     .maybeSingle()
 
-  // ── 4. Fetch yesterday's nutrition log ───────────────────────────────────
+  // ── 3b. Fetch yesterday's completed training session ─────────────────────
   const yesterday = new Date(todayStr)
   yesterday.setDate(yesterday.getDate() - 1)
+  const yesterdayStr = yesterday.toISOString().slice(0, 10)
+  const { data: yesterdaySession } = await supabase
+    .from('training_sessions')
+    .select('planned_type, status, actual_km, actual_duration_min, perceived_effort, went_too_fast, coach_notes, flag')
+    .eq('user_id', user.id)
+    .eq('session_date', yesterdayStr)
+    .neq('status', 'pending')
+    .maybeSingle()
+
+  // ── 4. Fetch yesterday's nutrition log ───────────────────────────────────
   const { data: nutritionYesterday } = await supabase
     .from('nutrition_logs')
     .select('adherence_score, has_alcohol')
     .eq('user_id', user.id)
-    .eq('log_date', yesterday.toISOString().slice(0, 10))
+    .eq('log_date', yesterdayStr)
     .maybeSingle()
 
   // ── 5. Fetch today's pending coach tasks ─────────────────────────────────
@@ -136,8 +147,21 @@ export async function POST(req: Request) {
       : '## History\nNo previous logs available.'
 
   const trainingSection = trainSession
-    ? `## Planned Training Today\nType: ${trainSession.session_type}\nDescription: ${trainSession.planned_description ?? 'N/A'}\nStatus: ${trainSession.completed ? 'completed' : 'not yet done'}`
+    ? `## Planned Training Today\nType: ${trainSession.planned_type}\nDescription: ${trainSession.planned_description ?? 'N/A'}\nStatus: ${trainSession.status === 'completed' || trainSession.status === 'modified' ? 'already completed' : 'not yet done'}`
     : `## Planned Training Today\nNo session planned (rest day or not scheduled).`
+
+  const yesterdaySessionSection = yesterdaySession
+    ? (() => {
+        const km = yesterdaySession.actual_km ? ` ${yesterdaySession.actual_km}km` : ''
+        const rpe = yesterdaySession.perceived_effort ? ` RPE:${yesterdaySession.perceived_effort}/10` : ''
+        const fast = yesterdaySession.went_too_fast ? ` ⚠️ went too fast` : ''
+        const flagStr = yesterdaySession.flag ? ` | Flag: ${yesterdaySession.flag}` : ''
+        const notes = yesterdaySession.coach_notes
+          ? `\nCoach evaluation: ${yesterdaySession.coach_notes.slice(0, 200)}${yesterdaySession.coach_notes.length > 200 ? '…' : ''}`
+          : ''
+        return `## Yesterday's Training Session\nType: ${yesterdaySession.planned_type} | Status: ${yesterdaySession.status}${km}${rpe}${fast}${flagStr}${notes}`
+      })()
+    : `## Yesterday's Training Session\nNo completed session recorded.`
 
   const nutritionSection = nutritionYesterday
     ? `## Yesterday's Nutrition\nAdherence score: ${nutritionYesterday.adherence_score ?? 'N/A'}/100${nutritionYesterday.has_alcohol ? '\n⚠️ Alcohol consumed yesterday' : ''}`
@@ -153,6 +177,7 @@ export async function POST(req: Request) {
     todaySection,
     historySection,
     trainingSection,
+    yesterdaySessionSection,
     nutritionSection,
     tasksSection,
   ].join('\n\n')
