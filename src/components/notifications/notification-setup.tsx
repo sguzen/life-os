@@ -3,6 +3,10 @@
 import { useEffect, useState } from "react";
 import { Bell, BellOff } from "lucide-react";
 
+// VAPID public key — generate a key pair at https://web-push-codelab.glitch.me/
+// Set NEXT_PUBLIC_VAPID_PUBLIC_KEY in your Vercel / .env.local environment variables.
+const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? '';
+
 // Converts a base64 URL-safe string to a Uint8Array (required by PushManager)
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
@@ -40,26 +44,22 @@ export function NotificationSetup() {
   }, []);
 
   async function subscribe() {
+    if (!VAPID_PUBLIC_KEY) {
+      console.warn('[NotificationSetup] NEXT_PUBLIC_VAPID_PUBLIC_KEY is not set.');
+      return;
+    }
     setStatus("checking");
     try {
-      const res = await fetch("/api/notifications/vapid-public-key");
-      if (!res.ok) throw new Error("VAPID key unavailable");
-      const { publicKey } = (await res.json()) as { publicKey: string };
-
       const reg = await navigator.serviceWorker.ready;
       const sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(publicKey),
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
       });
 
-      const json = sub.toJSON();
-      await fetch("/api/notifications/subscribe", {
+      await fetch("/api/push/subscribe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          endpoint: sub.endpoint,
-          keys: json.keys,
-        }),
+        body: JSON.stringify({ subscription: sub.toJSON() }),
       });
 
       setStatus("subscribed");
@@ -74,8 +74,8 @@ export function NotificationSetup() {
       const reg = await navigator.serviceWorker.ready;
       const sub = await reg.pushManager.getSubscription();
       if (sub) {
-        await fetch("/api/notifications/subscribe", {
-          method: "DELETE",
+        await fetch("/api/push/unsubscribe", {
+          method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ endpoint: sub.endpoint }),
         });
@@ -115,7 +115,7 @@ export function NotificationSetup() {
   return (
     <button
       onClick={subscribe}
-      title="Enable daily reminders (8 am check-in, 4 pm trading)"
+      title="Enable daily digest at 05:30 (Cyprus time)"
       className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
     >
       <Bell className="h-3.5 w-3.5" />
