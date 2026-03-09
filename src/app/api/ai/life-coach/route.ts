@@ -7,7 +7,7 @@ import { streamText, convertToModelMessages } from 'ai'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 import { ATHLETE_PROFILE } from '@/lib/ai/coaching'
-import { getSystemSnapshot } from '@/lib/ai/get-system-snapshot'
+import { getCoachContext, formatCoachContext } from '@/lib/ai/get-coach-context'
 
 export const runtime = 'nodejs'
 export const maxDuration = 90
@@ -66,24 +66,24 @@ export async function POST(req: Request) {
   } = await supabase.auth.getUser()
   if (!user) return new Response('Unauthorized', { status: 401 })
 
-  // ── Real-time system snapshot ────────────────────────────────────────────
-  let snapshotBlock = 'CURRENT_USER_STATE: {"error": "snapshot unavailable"}'
+  // ── Live context — fetched fresh on every request ────────────────────────
+  let liveDataBlock = '### LIVE_OS_DATA_SNAPSHOT\n> ERROR: context unavailable — do NOT tell the user you lack their data. Ask them to refresh.'
   try {
-    const snapshot = await getSystemSnapshot(supabase)
-    snapshotBlock = `CURRENT_USER_STATE:\n\`\`\`json\n${JSON.stringify(snapshot, null, 2)}\n\`\`\``
+    const ctx = await getCoachContext(supabase)
+    liveDataBlock = formatCoachContext(ctx)
   } catch (err) {
-    console.error('[life-coach] snapshot failed:', err)
+    console.error('[life-coach] context fetch failed:', err)
   }
 
   const moduleFocus = MODULE_FOCUS[focusModule] ?? MODULE_FOCUS.general
   const systemWithContext = `${COMMAND_CENTER_SYSTEM_PROMPT}
 
-## MODULE FOCUS
+## MODULE FOCUS FOR THIS SESSION
 ${moduleFocus}
 
 ---
 
-${snapshotBlock}`
+${liveDataBlock}`
 
   // ── Audit helper — called by every tool on execution ────────────────────
   async function logAudit(opts: {
@@ -473,6 +473,149 @@ ${snapshotBlock}`
             reason,
           })
           return p
+        },
+      },
+
+      // ── logMealComplete ───────────────────────────────────────────
+      // Direct write — low-risk: just marks a meal status in today's log.
+      logMealComplete: {
+        description:
+          'Mark a meal as complete (or partial/skipped) in today\'s nutrition log. ' +
+          'Use when the user says they just ate a meal or want to log one. ' +
+          'This is a direct write — no confirmation required.',
+        parameters: z.object({
+          meal_name: z
+            .string()
+            .describe('Key of the meal: meal_post_run | meal_breakfast | meal_lunch | meal_snack1 | meal_snack2 | meal_snack3 | meal_snack4'),
+          status: z
+            .enum(['complete', 'partial', 'skipped'])
+            .describe('New status to set for the meal'),
+          note: z
+            .string()
+            .optional()
+            .describe('Optional note about what was eaten or why it was skipped/partial'),
+        }),
+        execute: async ({ meal_name, status, note }) => {
+          try {
+            const today = new Date().toISOString().split('T')[0]
+
+            // Upsert nutrition_log row with updated meal status
+            const updatePayload: Record<string, unknown> = {
+              user_id: user.id,
+              log_date: today,
+              [meal_name]: status,
+            }
+            if (note) {
+              // Merge note into meal_notes JSONB — fetch existing first
+              const { data: existing } = await supabase
+                .from('nutrition_logs')
+                .select('meal_notes')
+                .eq('user_id', user.id)
+                .eq('log_date', today)
+                .maybeSingle()
+              const existingNotes = (existing?.meal_notes as Record<string, string>) ?? {}
+              updatePayload.meal_notes = { ...existingNotes, [meal_name]: note }
+            }
+
+            const { error } = await supabase
+              .from('nutrition_logs')
+              .upsert(updatePayload, { onConflict: 'user_id,log_date' })
+
+            if (error) throw error
+
+            await logAudit({
+              module: 'nutrition',
+              action: 'meal_logged',
+              entity_type: 'meal_log',
+              entity_description: `${meal_name} marked ${status}`,
+              new_value: status,
+              reason: note,
+            })
+
+            return {
+              success: true,
+              message: `Logged **${meal_name.replace('meal_', '')}** as **${status}** for ${today}.${note ? ` Note: "${note}"` : ''}`,
+            }
+          } catch (e) {
+            return { success: false, message: `Failed to log meal: ${String(e)}` }
+          }
+        },
+      },
+
+      // ── updateSupplement ──────────────────────────────────────────
+      // Direct write for non-critical supplement field updates (timing, notes).
+      // Significant lifecycle changes (pause/expire) still go through manageSupplement proposals.
+      updateSupplement: {
+        description:
+          'Directly update non-critical fields of a supplement: timing, prescribed_for, or notes. ' +
+          'For pause / resume / expire actions use the manageSupplement tool instead (those require user confirmation). ' +
+          'Use this when the user wants to change when a supplement is taken or what it\'s for.',
+        parameters: z.object({
+          supplement_name: z
+            .string()
+            .describe('Name of the supplement to update (partial match is OK)'),
+          updates: z.object({
+            timing: z
+              .string()
+              .nullable()
+              .optional()
+              .describe('New timing, e.g. "post-workout with food" or "morning with breakfast"'),
+            prescribed_for: z
+              .string()
+              .nullable()
+              .optional()
+              .describe('Updated goal/condition this supplement addresses'),
+          }),
+          reason: z.string().describe('Why the update is being made'),
+        }),
+        execute: async ({ supplement_name, updates, reason }) => {
+          try {
+            // Find supplement by partial name match
+            const { data: matches } = await supabase
+              .from('supplements')
+              .select('id, name')
+              .eq('user_id', user.id)
+              .eq('is_active', true)
+              .ilike('name', `%${supplement_name}%`)
+              .limit(1)
+
+            const sup = matches?.[0]
+            if (!sup) {
+              return {
+                success: false,
+                message: `No active supplement matching "${supplement_name}" found. Check the supplement list.`,
+              }
+            }
+
+            const { error } = await supabase
+              .from('supplements')
+              .update(updates)
+              .eq('id', sup.id)
+              .eq('user_id', user.id)
+
+            if (error) throw error
+
+            await logAudit({
+              module: 'nutrition',
+              action: 'supplement_updated',
+              entity_type: 'supplement',
+              entity_description: `Updated ${sup.name}: ${Object.keys(updates).join(', ')}`,
+              new_value: JSON.stringify(updates),
+              reason,
+            })
+
+            const changeDesc = Object.entries(updates)
+              .filter(([, v]) => v !== undefined)
+              .map(([k, v]) => `${k}: "${v}"`)
+              .join(', ')
+
+            return {
+              success: true,
+              message: `Updated **${sup.name}** — ${changeDesc}. Recorded in audit trail.`,
+            }
+          } catch (e) {
+            return { success: false, message: `Failed to update supplement: ${String(e)}` }
+          }
         },
       },
     },

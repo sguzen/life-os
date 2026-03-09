@@ -266,7 +266,7 @@ function ToolInvocationRenderer({
     return (
       <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-xs text-white/40">
         <Loader2 className="h-3.5 w-3.5 text-violet-400 animate-spin" />
-        <span>Preparing proposal…</span>
+        <span>Running {part.toolName}…</span>
       </div>
     )
   }
@@ -297,12 +297,22 @@ function ToolInvocationRenderer({
     )
   }
 
-  // Render simple success (e.g. logManualAudit)
+  // Render direct-write success (logMealComplete, updateSupplement, logManualAudit)
   if (result && 'success' in result && result.success === true && 'message' in result) {
     return (
       <div className="flex items-start gap-2.5 px-3 py-2 rounded-lg border bg-emerald-500/5 border-emerald-500/20 text-xs">
         <CheckCircle className="h-3.5 w-3.5 text-emerald-400 mt-0.5 shrink-0" />
         <p className="text-emerald-300">{result.message as string}</p>
+      </div>
+    )
+  }
+
+  // Render direct-write failure
+  if (result && 'success' in result && result.success === false && 'message' in result) {
+    return (
+      <div className="flex items-start gap-2.5 px-3 py-2 rounded-lg border bg-red-500/5 border-red-500/20 text-xs">
+        <AlertCircle className="h-3.5 w-3.5 text-red-400 mt-0.5 shrink-0" />
+        <p className="text-red-300">{result.message as string}</p>
       </div>
     )
   }
