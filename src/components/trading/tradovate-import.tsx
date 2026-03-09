@@ -64,14 +64,14 @@ const PRODUCT_TO_INSTRUMENT: Record<string, Instrument> = {
 // ── Default commission rates (round-turn per contract) ─────────────────────
 
 export const DEFAULT_COMMISSIONS: Record<string, number> = {
-  MNQ: 0.75,
+  MNQ: 0.74,
   NQ: 2.8,
-  MES: 0.75,
+  MES: 0.74,
   ES: 2.8,
-  MGC: 1.05,
-  GC: 3.25,
-  MCL: 1.05,
-  CL: 3.05,
+  MGC: 1.04,
+  GC: 3.24,
+  MCL: 1.04,
+  CL: 3.04,
   M6E: 0.52,
   "6E": 0,
 };
