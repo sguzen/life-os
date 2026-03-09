@@ -137,17 +137,17 @@ export async function POST(req: Request) {
 
   const trainingSection = trainSession
     ? `## Planned Training Today\nType: ${trainSession.session_type}\nDescription: ${trainSession.planned_description ?? 'N/A'}\nStatus: ${trainSession.completed ? 'completed' : 'not yet done'}`
-    : '## Planned Training Today\nNo session planned (rest day or not scheduled).'
+    : `## Planned Training Today\nNo session planned (rest day or not scheduled).`
 
   const nutritionSection = nutritionYesterday
     ? `## Yesterday's Nutrition\nAdherence score: ${nutritionYesterday.adherence_score ?? 'N/A'}/100${nutritionYesterday.has_alcohol ? '\n⚠️ Alcohol consumed yesterday' : ''}`
-    : '## Yesterday's Nutrition\nNo log available.'
+    : `## Yesterday's Nutrition\nNo log available.`
 
   const tasksSection =
     pendingTasks && pendingTasks.length > 0
       ? `## Today's Pending Tasks\n` +
         pendingTasks.map((t) => `- [${t.priority ?? 'normal'}] ${t.title}`).join('\n')
-      : '## Today's Pending Tasks\nNone scheduled.'
+      : `## Today's Pending Tasks\nNone scheduled.`
 
   const userMessage = [
     todaySection,
