@@ -6,7 +6,7 @@ import { ATHLETE_PROFILE } from './coaching'
 
 // ── System prompt ──────────────────────────────────────────────────────────
 
-export const MASTER_COACH_SYSTEM_PROMPT = `You are the central Life OS coach — a highly capable AI adviser with full visibility into all of ${ATHLETE_PROFILE.sex === 'female' ? 'her' : 'their'} systems: marathon training, nutrition, supplements, habits, and trading.
+export const MASTER_COACH_SYSTEM_PROMPT = `You are the central Life OS coach — a highly capable AI adviser with full visibility into all of ${ATHLETE_PROFILE.sex === 'female' ? 'her' : 'their'} systems: marathon training, nutrition, supplements, habits, trading, and daily readiness.
 
 Athlete profile:
 - Age: ${ATHLETE_PROFILE.age}yo ${ATHLETE_PROFILE.sex}
@@ -18,12 +18,14 @@ Athlete profile:
 
 Your capabilities:
 - You can read data from ALL modules (running, nutrition, supplements, habits, trading, marathon plan).
+- You can read morning logs: daily readiness data (RHR, sleep, energy, mood, body readiness).
 - You can make changes using tools: pause/resume supplements, update plan configuration values.
 - All changes you make are logged to the audit trail automatically.
 - Supplements are prescribed by Dr Emine Ömerağa — you can manage scheduling/timing/pausing but must NOT change medical dosages or diagnoses.
 
 Coaching philosophy:
 - Be direct, data-driven, and cross-domain. Spot patterns across modules (e.g. "poor sleep → slow run → mood dip → bad trading").
+- Morning logs contain daily readiness data: RHR, sleep, energy, mood, body readiness. Cross-reference these with training performance and trading outcomes. If recent logs show declining energy or HR spikes, proactively flag it.
 - When asked to make a change, do it immediately with the appropriate tool and explain what you did.
 - Before making a significant change (like pausing a prescribed supplement), confirm intent if the user's message is ambiguous.
 - Format responses with clear sections. Use markdown. Keep responses under 500 words unless doing multi-week analysis.
@@ -53,6 +55,7 @@ export async function buildFullSystemContext(supabase: SupabaseClient): Promise<
     marathonSessionsRes,
     planConfigsRes,
     recentAuditRes,
+    morningLogsRes,
   ] = await Promise.allSettled([
     supabase
       .from('supplements')
@@ -113,6 +116,13 @@ export async function buildFullSystemContext(supabase: SupabaseClient): Promise<
       .eq('user_id', user.id)
       .order('changed_at', { ascending: false })
       .limit(10),
+
+    supabase
+      .from('morning_logs')
+      .select('log_date, resting_hr_bpm, sleep_hours, sleep_quality, energy_level, mood, body_readiness, woke_easily, had_dreams, dream_quality, notes')
+      .eq('user_id', user.id)
+      .gte('log_date', cutoff14Str)
+      .order('log_date', { ascending: false }),
   ])
 
   const sections: string[] = []
@@ -273,6 +283,29 @@ export async function buildFullSystemContext(supabase: SupabaseClient): Promise<
       return `- ${date} [${e.changed_by}] ${e.module}: ${change}${e.reason ? ` — ${e.reason}` : ''}`
     })
     sections.push(`## Recent Changes (audit log)\n${lines.join('\n')}`)
+  }
+
+  // ── Morning Logs ─────────────────────────────────────────────────
+  if (morningLogsRes.status === 'fulfilled' && morningLogsRes.value.data?.length) {
+    const logs = morningLogsRes.value.data
+    const lines = logs.map((l) => {
+      const dreamNote = l.had_dreams
+        ? l.dream_quality ?? 'yes'
+        : l.had_dreams === false
+          ? 'none'
+          : null
+      const parts = [
+        `HR:${l.resting_hr_bpm != null ? l.resting_hr_bpm + 'bpm' : 'N/A'}`,
+        `Sleep:${l.sleep_hours != null ? l.sleep_hours + 'h' : 'N/A'} Q:${l.sleep_quality ?? '?'}/5`,
+        `Energy:${l.energy_level ?? '?'}/5`,
+        `Mood:${l.mood ?? '?'}/5`,
+        `Body:${l.body_readiness ?? '?'}/5`,
+        dreamNote ? `Dreams:${dreamNote}` : null,
+      ].filter(Boolean)
+      const noteStr = l.notes ? `\n  Notes: ${l.notes}` : ''
+      return `- ${l.log_date} | ${parts.join(' | ')}${noteStr}`
+    })
+    sections.push(`## Morning Logs (last 14 days)\n${lines.join('\n')}`)
   }
 
   return sections.join('\n\n')

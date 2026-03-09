@@ -3,6 +3,7 @@ import { getHabitsWithLogs } from '@/lib/supabase/habits'
 import { getDebts, getPropPayouts } from '@/lib/supabase/finance'
 import { getActivities, getRaceTargets } from '@/lib/supabase/running'
 
+import { MorningCheckin } from '@/components/morning/MorningCheckin'
 import { HabitsRingCard } from '@/components/dashboard/habits-ring-card'
 import { HabitStreaksCard } from '@/components/dashboard/habit-streaks-card'
 import type { StreakItem } from '@/components/dashboard/habit-streaks-card'
@@ -238,6 +239,9 @@ export default async function DashboardPage() {
         <h1 className="text-2xl font-bold">Dashboard</h1>
         <p className="text-sm text-muted-foreground mt-0.5">{dateLabel}</p>
       </div>
+
+      {/* Row 0 — Morning Check-In (client component, loads its own data) */}
+      <MorningCheckin />
 
       {/* Row 1 — Habits: ring + streaks + compliance */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
