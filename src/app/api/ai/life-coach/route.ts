@@ -1,19 +1,13 @@
-// Global Life Coach — holistic cross-module streaming coach with proposal tools
-// Reads all modules simultaneously; tools return proposals (not DB writes) that
-// the user must Confirm or Reject in the UI before any changes are applied.
+// Life OS Command Center — holistic cross-module AI coach (Gemini 2.5 Pro)
+// Every request fetches a real-time system snapshot so the model has full
+// visibility before responding. Tools return proposals the user Confirms.
 
 import { google } from '@ai-sdk/google'
 import { streamText, convertToModelMessages } from 'ai'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
-import {
-  ATHLETE_PROFILE,
-  getGlobalLifeContext,
-  buildGlobalContextBlock,
-  getGlobalContext,
-  buildNutritionContextBlock,
-} from '@/lib/ai/coaching'
-import { buildFullSystemContext } from '@/lib/ai/master-coach'
+import { ATHLETE_PROFILE } from '@/lib/ai/coaching'
+import { getSystemSnapshot } from '@/lib/ai/get-system-snapshot'
 
 export const runtime = 'nodejs'
 export const maxDuration = 90
@@ -22,50 +16,44 @@ export const maxDuration = 90
 
 const MODULE_FOCUS: Record<string, string> = {
   trading:
-    'Focus your analysis on trading performance and discipline, but connect to running recovery ' +
-    'and sleep habit data where relevant. If the athlete is overtrained or under-slept, say so.',
+    'Drill into the trading section of CURRENT_USER_STATE first. Cross-reference today\'s P&L ' +
+    'and trade count against plan_config limits. Connect to resting HR and sleep habit data.',
   running:
-    'Focus on running training, recovery, and race readiness. Flag if trading stress, habit ' +
-    'failures, or supplement gaps may be compounding fatigue.',
+    'Drill into the athletics section of CURRENT_USER_STATE. Compare today\'s scheduled target ' +
+    'vs last 3 activities. Flag supplement or sleep gaps that compound fatigue.',
   habits:
-    'Focus on habit compliance and streak patterns. Connect habit failures to their downstream ' +
-    'impact on running performance and trading decision quality.',
+    'Audit habit compliance from CURRENT_USER_STATE and downstream effects on running and trading.',
   supplements:
-    'Focus on supplement adherence and scheduling. Reference training load and recovery data to ' +
-    'contextualise why gaps matter.',
+    'Check supplement taken_today status in CURRENT_USER_STATE. Reference training load to ' +
+    'explain why gaps matter right now.',
+  nutrition:
+    'Analyse the nutrition section of CURRENT_USER_STATE: meals complete vs total, calories and ' +
+    'protein consumed vs plan targets. Suggest adjustments if off track.',
   general:
-    'Deliver a holistic overview. Lead with the most pressing cross-domain signal you see, ' +
-    'then break down each module.',
+    'Deliver a holistic system overview. Lead with the single most urgent signal from ' +
+    'CURRENT_USER_STATE, then break down each module.',
 }
 
 // ── System prompt ──────────────────────────────────────────────────────────
 
-const GLOBAL_LIFE_COACH_SYSTEM_PROMPT = `You are a Holistic Life Coach — a central intelligence with full visibility into every domain of this athlete's life: marathon training, trading performance, daily habit compliance, and nutrition/supplementation.
+const COMMAND_CENTER_SYSTEM_PROMPT = `You are the Life OS Command Center — a high-performance AI coach with real-time visibility into every domain of this athlete's life.
 
-Athlete profile:
-- Age: ${ATHLETE_PROFILE.age}yo ${ATHLETE_PROFILE.sex}
-- Goal race: ${ATHLETE_PROFILE.race} on ${ATHLETE_PROFILE.raceDate} (target ${ATHLETE_PROFILE.targetTime})
-- Resting HR baseline: ${ATHLETE_PROFILE.restingHrBaseline}
-- Core challenge: ${ATHLETE_PROFILE.mainIssue}
+Athlete: ${ATHLETE_PROFILE.age}yo ${ATHLETE_PROFILE.sex} | Goal: ${ATHLETE_PROFILE.race} ${ATHLETE_PROFILE.raceDate} in ${ATHLETE_PROFILE.targetTime} | HR baseline: ${ATHLETE_PROFILE.restingHrBaseline}
 
-Your unique value is **connecting dots across domains**. Examples of the cross-domain signals you surface:
-- "Resting HR spike + 2 alcohol days this week + 3 rule breaks in trading = systemic stress. This is a recovery and discipline crisis, not isolated incidents."
-- "Sleep habit at 40% compliance → training pace violations up → trading losses this week. The root cause is sleep."
-- "Supplement adherence dropped during peak training load — this is compounding recovery deficit 6 weeks from race day."
+## CRITICAL INSTRUCTIONS
+1. **Do NOT give generic advice.** Every response must reference specific values from CURRENT_USER_STATE.
+2. **If the user asks for a change** (to a meal, config, or supplement), call the appropriate TOOL immediately — do not just describe the change.
+3. **Connect dots across domains.** A resting HR spike + poor sleep + trading losses on the same day is a system failure, not three separate events.
+4. **Tools create Proposal Cards** — the user confirms before any DB write occurs. All confirmed changes log as 'ai_life_coach' in the audit trail.
 
-Your capabilities:
-- Read data from ALL modules simultaneously via injected context.
-- **Propose** changes to plan configs and supplement schedules using tools.
-- Every tool call creates a **Proposal Card** in the UI — the user must Confirm or Reject before any DB write occurs.
-- All confirmed changes are attributed to 'ai_life_coach' in the audit trail.
+## EXAMPLES OF DATA-DRIVEN RESPONSES (required style)
+- "Today's P&L: -$XX with Y trades. You've hit Z% of your max_trades_day limit. Your resting HR is N bpm (Δ+M from baseline) — this is not a good day to add risk."
+- "You've completed X/Y meals today, consuming ~Z kcal of your ${ATHLETE_PROFILE.race} training target. Protein is Ng short. Snack 3 can close that gap."
+- "Last 3 runs averaged Xm:Ss/km vs ${ATHLETE_PROFILE.trainingPaces.easy} easy target — consistently too fast. Proposing easy_pace_max adjustment."
 
-Supplements are prescribed by Dr Emine Ömerağa — you can manage scheduling, pausing, and additions but must NOT alter medical dosages or diagnoses.
-
-Coaching style:
-- Direct, data-driven, pattern-recognition first.
-- When the user asks you to change something, call the appropriate tool immediately to generate the proposal.
-- Before proposing a significant change (e.g. pausing a prescribed supplement), briefly explain the cross-module rationale.
-- Format responses with clear sections. Use markdown. Under 500 words unless doing multi-week analysis.`
+## CONSTRAINTS
+- Supplements prescribed by Dr Emine Ömerağa — manage scheduling/pausing/additions but never alter medical dosages or diagnoses.
+- Format with markdown headers. Under 400 words unless doing multi-week analysis.`
 
 // ── Route handler ──────────────────────────────────────────────────────────
 
@@ -78,39 +66,53 @@ export async function POST(req: Request) {
   } = await supabase.auth.getUser()
   if (!user) return new Response('Unauthorized', { status: 401 })
 
-  // Build context: fast cross-module summary + nutrition plan + full detail block
-  let contextBlock = ''
+  // ── Real-time system snapshot ────────────────────────────────────────────
+  let snapshotBlock = 'CURRENT_USER_STATE: {"error": "snapshot unavailable"}'
   try {
-    const [globalCtx, fullCtx, nutritionCtx] = await Promise.all([
-      getGlobalLifeContext(supabase),
-      buildFullSystemContext(supabase),
-      getGlobalContext(supabase),
-    ])
-    const signals = buildGlobalContextBlock(globalCtx)
-    const nutritionBlock = buildNutritionContextBlock(nutritionCtx)
-    contextBlock = `## Cross-Module Signal Summary\n${signals}\n\n---\n\n${nutritionBlock}\n\n---\n\n${fullCtx}`
+    const snapshot = await getSystemSnapshot(supabase)
+    snapshotBlock = `CURRENT_USER_STATE:\n\`\`\`json\n${JSON.stringify(snapshot, null, 2)}\n\`\`\``
   } catch (err) {
-    console.error('[life-coach] context build failed:', err)
-    contextBlock = '(Context unavailable — answering from conversation only.)'
+    console.error('[life-coach] snapshot failed:', err)
   }
 
   const moduleFocus = MODULE_FOCUS[focusModule] ?? MODULE_FOCUS.general
-  const systemWithContext = `${GLOBAL_LIFE_COACH_SYSTEM_PROMPT}
+  const systemWithContext = `${COMMAND_CENTER_SYSTEM_PROMPT}
 
-Module focus for this session: ${moduleFocus}
+## MODULE FOCUS
+${moduleFocus}
 
 ---
 
-${contextBlock}`
+${snapshotBlock}`
+
+  // ── Audit helper — called by every tool on execution ────────────────────
+  async function logAudit(opts: {
+    module: string
+    action: string
+    entity_type: string
+    entity_description: string
+    new_value?: string
+    reason?: string
+  }) {
+    try {
+      await supabase.from('plan_audit_log').insert({
+        user_id: user.id,
+        changed_by: 'ai_life_coach',
+        ...opts,
+      })
+    } catch {
+      // non-fatal
+    }
+  }
 
   const modelMessages = await convertToModelMessages(messages)
 
   const result = streamText({
-    model: google('gemini-2.5-flash'),
+    model: google('models/gemini-2.5-pro'),
     system: systemWithContext,
     messages: modelMessages,
     maxOutputTokens: 2048,
-    temperature: 0.7,
+    temperature: 0.6,
     maxSteps: 3,
 
     tools: {
@@ -158,7 +160,7 @@ ${contextBlock}`
             }
 
             const unit = current.config_unit ? ` ${current.config_unit}` : ''
-            return {
+            const proposal = {
               type: 'proposal' as const,
               action: 'update_plan_config',
               displayTitle: `Update ${current.config_label}`,
@@ -173,6 +175,15 @@ ${contextBlock}`
                 config_unit: current.config_unit ?? null,
               },
             }
+            await logAudit({
+              module,
+              action: 'proposal_generated',
+              entity_type: 'plan_config',
+              entity_description: `Proposed: ${current.config_label} → ${new_value}${unit}`,
+              new_value,
+              reason,
+            })
+            return proposal
           } catch (e) {
             return { type: 'error' as const, message: `Failed to build proposal: ${String(e)}` }
           }
@@ -227,7 +238,7 @@ ${contextBlock}`
                 message: 'Both "name" and "frequency" are required to add a supplement.',
               }
             }
-            return {
+            const addProposal = {
               type: 'proposal' as const,
               action: 'manage_supplement',
               displayTitle: `Add Supplement: ${name}`,
@@ -244,6 +255,14 @@ ${contextBlock}`
                 prescribed_for: prescribed_for ?? null,
               },
             }
+            await logAudit({
+              module: 'nutrition',
+              action: 'proposal_generated',
+              entity_type: 'supplement',
+              entity_description: `Proposed add: ${name} — ${frequency}`,
+              reason,
+            })
+            return addProposal
           }
 
           if (!supplement_id) {
@@ -273,7 +292,7 @@ ${contextBlock}`
             expire: 'Expire / Deactivate',
           }
 
-          return {
+          const supProposal = {
             type: 'proposal' as const,
             action: 'manage_supplement',
             displayTitle: `${actionLabel[action]} Supplement: ${sup.name}`,
@@ -285,6 +304,14 @@ ${contextBlock}`
               supplement_name: sup.name,
             },
           }
+          await logAudit({
+            module: 'nutrition',
+            action: 'proposal_generated',
+            entity_type: 'supplement',
+            entity_description: `Proposed ${action}: ${sup.name}`,
+            reason,
+          })
+          return supProposal
         },
       },
 
@@ -371,7 +398,7 @@ ${contextBlock}`
               .map(([k, v]) => `**${k}**: ${(meal as Record<string, unknown>)[k] ?? 'unset'} → ${v}`)
               .join('\n')
 
-            return {
+            const mealProposal = {
               type: 'proposal' as const,
               action: 'update_meal',
               displayTitle: `Update ${meal.label}`,
@@ -384,6 +411,15 @@ ${contextBlock}`
                 updates,
               },
             }
+            await logAudit({
+              module: 'nutrition',
+              action: 'proposal_generated',
+              entity_type: 'meal',
+              entity_description: `Proposed update: ${meal.label} — ${Object.keys(updates).join(', ')}`,
+              new_value: JSON.stringify(updates),
+              reason,
+            })
+            return mealProposal
           } catch (e) {
             return { type: 'error' as const, message: `Failed to build proposal: ${String(e)}` }
           }
@@ -412,7 +448,7 @@ ${contextBlock}`
           reason: z.string().describe('Why this supplement is being proposed'),
         }),
         execute: async ({ name, frequency, timing, prescribed_for, reason }) => {
-          return {
+          const p = {
             type: 'proposal' as const,
             action: 'manage_supplement',
             displayTitle: `Add Supplement: ${name}`,
@@ -429,6 +465,14 @@ ${contextBlock}`
               prescribed_for: prescribed_for ?? null,
             },
           }
+          await logAudit({
+            module: 'nutrition',
+            action: 'proposal_generated',
+            entity_type: 'supplement',
+            entity_description: `Proposed add: ${name} — ${frequency}`,
+            reason,
+          })
+          return p
         },
       },
     },

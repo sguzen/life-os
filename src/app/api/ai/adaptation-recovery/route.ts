@@ -42,7 +42,7 @@ export async function POST(req: Request) {
     ].filter(Boolean).join('\n')
 
     const { text } = await generateText({
-      model: google('gemini-2.5-flash'),
+      model: google('gemini-2.5-pro'),
       system: RECOVERY_SYSTEM_PROMPT,
       prompt,
       maxTokens: 256,

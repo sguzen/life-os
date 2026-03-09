@@ -58,7 +58,7 @@ export async function POST(req: Request) {
   try {
 <<<<<<< HEAD
     result = await generateText({
-      model: google('gemini-2.5-flash'),
+      model: google('gemini-2.5-pro'),
 =======
     const { object } = await generateObject({
       model: google('gemini-1.5-flash-latest'),
