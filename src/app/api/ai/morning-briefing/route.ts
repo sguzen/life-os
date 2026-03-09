@@ -93,7 +93,7 @@ export async function POST(req: Request) {
   // ── 5. Fetch today's pending coach tasks ─────────────────────────────────
   const { data: pendingTasks } = await supabase
     .from('coach_tasks')
-    .select('title, priority')
+    .select('title, module')
     .eq('user_id', user.id)
     .eq('due_date', todayStr)
     .is('completed_at', null)
@@ -146,7 +146,7 @@ export async function POST(req: Request) {
   const tasksSection =
     pendingTasks && pendingTasks.length > 0
       ? `## Today's Pending Tasks\n` +
-        pendingTasks.map((t) => `- [${t.priority ?? 'normal'}] ${t.title}`).join('\n')
+        pendingTasks.map((t) => `- [${t.module ?? 'general'}] ${t.title}`).join('\n')
       : `## Today's Pending Tasks\nNone scheduled.`
 
   const userMessage = [

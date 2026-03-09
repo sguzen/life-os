@@ -306,6 +306,152 @@ export async function POST(req: Request) {
         },
       },
 
+      // ── Task tools ──────────────────────────────────────────────
+
+      create_task: {
+        description:
+          'Create a task or reminder for the user. Use when the user says ' +
+          '"remind me to X", "add a task to Y", "don\'t let me forget Z on [date]", ' +
+          'or asks the coach to track something for a specific date. ' +
+          'Always confirm after creating: "Added to your tasks: [title] for [date]."',
+        parameters: z.object({
+          title: z.string().describe('Clear, actionable task title'),
+          notes: z.string().optional().describe('Additional context or details'),
+          due_date: z.string().optional().describe('ISO date YYYY-MM-DD'),
+          due_time: z.string().optional().describe('HH:MM 24h format'),
+          recurrence: z.enum(['none', 'daily', 'weekly', 'weekdays']).default('none'),
+          module: z
+            .enum(['general', 'training', 'nutrition', 'trading', 'health', 'personal'])
+            .default('general'),
+          coach_context: z.string().describe('Why this task was created'),
+        }),
+        execute: async ({ title, notes, due_date, due_time, recurrence, module: taskModule, coach_context }) => {
+          try {
+            const { data: row, error } = await supabase
+              .from('coach_tasks')
+              .insert({
+                user_id: user.id,
+                title,
+                notes: notes ?? null,
+                due_date: due_date ?? null,
+                due_time: due_time ?? null,
+                recurrence,
+                module: taskModule,
+                source: 'ai_coach',
+                coach_context,
+              })
+              .select('id, title')
+              .single()
+
+            if (error) throw error
+
+            const dateStr = due_date ? ` for ${due_date}` : ''
+            const timeStr = due_time ? ` at ${due_time}` : ''
+            return {
+              success: true,
+              id: row?.id,
+              message: `Added to your tasks: "${title}"${dateStr}${timeStr}.`,
+            }
+          } catch (e) {
+            return { success: false, message: `Failed to create task: ${String(e)}` }
+          }
+        },
+      },
+
+      complete_task: {
+        description:
+          'Mark a task as complete. Use when user says "done", "completed", ' +
+          '"mark X as done", or similar. Provide either the task id or a partial title to match.',
+        parameters: z.object({
+          task_id: z.string().optional().describe('UUID of the task if known'),
+          title_hint: z.string().optional().describe('Partial title to match if no id available'),
+        }),
+        execute: async ({ task_id, title_hint }) => {
+          try {
+            let resolvedId = task_id
+
+            if (!resolvedId && title_hint) {
+              const { data: matches } = await supabase
+                .from('coach_tasks')
+                .select('id, title')
+                .eq('user_id', user.id)
+                .is('completed_at', null)
+                .ilike('title', `%${title_hint}%`)
+                .order('created_at', { ascending: false })
+                .limit(1)
+
+              resolvedId = matches?.[0]?.id
+              if (!resolvedId) {
+                return { success: false, message: `No pending task found matching "${title_hint}".` }
+              }
+            }
+
+            if (!resolvedId) {
+              return { success: false, message: 'Provide task_id or title_hint to complete a task.' }
+            }
+
+            const { data: task, error } = await supabase
+              .from('coach_tasks')
+              .update({ completed_at: new Date().toISOString() })
+              .eq('id', resolvedId)
+              .eq('user_id', user.id)
+              .select('title')
+              .single()
+
+            if (error) throw error
+            return { success: true, message: `Completed: "${task?.title ?? resolvedId}".` }
+          } catch (e) {
+            return { success: false, message: `Failed to complete task: ${String(e)}` }
+          }
+        },
+      },
+
+      get_tasks: {
+        description:
+          'Fetch the user\'s current tasks. Use when user asks "what do I have to do", ' +
+          '"what\'s on my list", "any reminders today", or similar.',
+        parameters: z.object({
+          scope: z
+            .enum(['today', 'upcoming', 'all_pending'])
+            .default('today')
+            .describe('today=due today | upcoming=next 7 days | all_pending=all incomplete'),
+        }),
+        execute: async ({ scope }) => {
+          try {
+            const todayStr = new Date().toISOString().slice(0, 10)
+            const futureStr = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10)
+
+            let query = supabase
+              .from('coach_tasks')
+              .select('id, title, notes, due_date, due_time, module, source, recurrence')
+              .eq('user_id', user.id)
+              .is('completed_at', null)
+
+            if (scope === 'today') {
+              query = query.eq('due_date', todayStr)
+            } else if (scope === 'upcoming') {
+              query = query.gte('due_date', todayStr).lte('due_date', futureStr)
+            }
+
+            const { data } = await query.order('due_date', { ascending: true, nullsFirst: false })
+
+            const tasks = (data ?? []).map((t) => ({
+              id: t.id,
+              title: t.title,
+              due: t.due_date ? `${t.due_date}${t.due_time ? ' ' + t.due_time : ''}` : 'no date',
+              module: t.module ?? 'general',
+              source: t.source,
+              recurrence: t.recurrence,
+              notes: t.notes ?? undefined,
+            }))
+
+            return { tasks, count: tasks.length, message: `Found ${tasks.length} task(s).` }
+          } catch (e) {
+            return { tasks: [], count: 0, message: `Failed to fetch tasks: ${String(e)}` }
+          }
+        },
+      },
+
       // ── Audit log read tool ─────────────────────────────────────
 
       get_recent_changes: {

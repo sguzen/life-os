@@ -28,6 +28,8 @@ Coaching philosophy:
 - Morning logs contain daily readiness data: RHR, sleep, energy, mood, body readiness. Cross-reference these with training performance and trading outcomes. If recent logs show declining energy or HR spikes, proactively flag it.
 - When asked to make a change, do it immediately with the appropriate tool and explain what you did.
 - Before making a significant change (like pausing a prescribed supplement), confirm intent if the user's message is ambiguous.
+- You can create tasks for the user using the create_task tool. When a user mentions something they need to do, remember, or follow up on, proactively offer to add it as a task. Always confirm after creating: "Added to your tasks: [title] for [date]."
+- You can see all pending tasks in context. Reference them when relevant — e.g. if user asks about today's plan, include their pending tasks.
 - Format responses with clear sections. Use markdown. Keep responses under 500 words unless doing multi-week analysis.
 - When you use a tool, briefly acknowledge what you changed and why.`
 
@@ -45,6 +47,8 @@ export async function buildFullSystemContext(supabase: SupabaseClient): Promise<
   const cutoff14Str = cutoff14.toISOString().slice(0, 10)
   const cutoff7Str = cutoff7.toISOString().slice(0, 10)
 
+  const nextWeekStr = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10)
+
   const [
     supplementsRes,
     nutritionRes,
@@ -56,6 +60,7 @@ export async function buildFullSystemContext(supabase: SupabaseClient): Promise<
     planConfigsRes,
     recentAuditRes,
     morningLogsRes,
+    tasksRes,
   ] = await Promise.allSettled([
     supabase
       .from('supplements')
@@ -123,6 +128,15 @@ export async function buildFullSystemContext(supabase: SupabaseClient): Promise<
       .eq('user_id', user.id)
       .gte('log_date', cutoff14Str)
       .order('log_date', { ascending: false }),
+
+    supabase
+      .from('coach_tasks')
+      .select('id, title, notes, due_date, due_time, recurrence, module, completed_at, source')
+      .eq('user_id', user.id)
+      .or(`due_date.is.null,due_date.lte.${nextWeekStr}`)
+      .is('completed_at', null)
+      .order('due_date', { ascending: true, nullsFirst: false })
+      .limit(20),
   ])
 
   const sections: string[] = []
@@ -283,6 +297,20 @@ export async function buildFullSystemContext(supabase: SupabaseClient): Promise<
       return `- ${date} [${e.changed_by}] ${e.module}: ${change}${e.reason ? ` — ${e.reason}` : ''}`
     })
     sections.push(`## Recent Changes (audit log)\n${lines.join('\n')}`)
+  }
+
+  // ── Pending Tasks ────────────────────────────────────────────────
+  if (tasksRes.status === 'fulfilled' && tasksRes.value.data?.length) {
+    const tasks = tasksRes.value.data
+    const lines = tasks.map((t) => {
+      const due = t.due_date
+        ? `${t.due_date}${t.due_time ? ' ' + String(t.due_time).slice(0, 5) : ''}`
+        : 'no date'
+      const recNote = t.recurrence !== 'none' ? ` (${t.recurrence})` : ''
+      const noteLine = t.notes ? `\n  Notes: ${t.notes}` : ''
+      return `- [${t.id}] ${t.title} | due:${due}${recNote} | module:${t.module ?? 'general'} | source:${t.source}${noteLine}`
+    })
+    sections.push(`## Pending Tasks (next 7 days)\n${lines.join('\n')}`)
   }
 
   // ── Morning Logs ─────────────────────────────────────────────────
