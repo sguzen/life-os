@@ -4,6 +4,7 @@
 import { google } from '@ai-sdk/google'
 import { generateText } from 'ai'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { maybeFireAdaptEvent } from '@/lib/adapt/trigger'
 
 const EVAL_SYSTEM_PROMPT = `You are the training coach for a 43yo female marathon runner (Belfast Marathon April 19, goal 3:32). She trains fasted at 4-5am. Key problem: going too fast on easy runs.
 
@@ -174,6 +175,17 @@ export async function evaluateTrainingSession(
     .update({ coach_notes: evaluation, flag })
     .eq('id', sessionId)
     .eq('user_id', userId)
+
+  // ── 8. Fire adapt event if session was brutal (PE >= 5 or warning flag) ──
+  if (flag === 'warning' || (session.perceived_effort ?? 0) >= 5) {
+    maybeFireAdaptEvent(supabase, userId, 'brutal_training_session', {
+      session_date: session.session_date,
+      session_type: session.planned_type,
+      distance_km: session.actual_km,
+      perceived_effort: session.perceived_effort,
+      flag,
+    }).catch((e) => console.error('[training-eval] adapt trigger failed:', e))
+  }
 
   return { evaluation, flag }
 }

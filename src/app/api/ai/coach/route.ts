@@ -8,6 +8,8 @@ import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 import { MASTER_COACH_SYSTEM_PROMPT, buildFullSystemContext } from '@/lib/ai/master-coach'
 import { evaluateTrainingSession } from '@/lib/ai/training-evaluation'
+import { generateMorningBriefing } from '@/lib/ai/morning-briefing'
+import { maybeFireAdaptEvent } from '@/lib/adapt/trigger'
 import type { UIMessage } from 'ai'
 
 export const runtime = 'nodejs'
@@ -111,7 +113,7 @@ export async function POST(req: Request) {
     messages: modelMessages,
     maxOutputTokens: 2048,
     temperature: 0.7,
-    maxSteps: 3,
+    maxSteps: 5,
 
     onFinish: async ({ text }) => {
       try {
@@ -491,6 +493,197 @@ export async function POST(req: Request) {
             }
           } catch (e) {
             return { success: false, message: `Evaluation failed: ${String(e)}` }
+          }
+        },
+      },
+
+      // ── Morning briefing tool ───────────────────────────────────
+
+      generate_morning_briefing: {
+        description:
+          'Surface or generate the AI morning briefing for today. ' +
+          'Use when user asks "what\'s my briefing", "how am I doing today", ' +
+          '"give me my morning briefing", or similar. ' +
+          'Fetches today\'s morning log and returns the readiness briefing.',
+        parameters: z.object({
+          date: z.string().optional().describe('ISO date YYYY-MM-DD. Defaults to today.'),
+        }),
+        execute: async ({ date }) => {
+          try {
+            const targetDate = date ?? new Date().toISOString().slice(0, 10)
+            const { data: log } = await supabase
+              .from('morning_logs')
+              .select('id, ai_briefing')
+              .eq('user_id', user.id)
+              .eq('log_date', targetDate)
+              .maybeSingle()
+
+            if (!log) {
+              return { success: false, message: `No morning log found for ${targetDate}. Ask the user to complete their morning check-in.` }
+            }
+
+            const result = await generateMorningBriefing(supabase, log.id, user.id)
+            return { success: true, briefing: result.briefing }
+          } catch (e) {
+            return { success: false, message: `Failed to generate briefing: ${String(e)}` }
+          }
+        },
+      },
+
+      // ── Nutrition summary tool ──────────────────────────────────
+
+      nutrition_summary: {
+        description:
+          'Fetch and summarise today\'s (or a specific day\'s) nutrition tracking. ' +
+          'Use when user asks "how was my nutrition", "what did I eat today", ' +
+          '"did I hit my targets", or similar.',
+        parameters: z.object({
+          date: z.string().optional().describe('ISO date YYYY-MM-DD. Defaults to today.'),
+        }),
+        execute: async ({ date }) => {
+          try {
+            const targetDate = date ?? new Date().toISOString().slice(0, 10)
+
+            const [logRes, mealsRes] = await Promise.allSettled([
+              supabase
+                .from('nutrition_logs')
+                .select('*')
+                .eq('user_id', user.id)
+                .eq('log_date', targetDate)
+                .maybeSingle(),
+
+              supabase
+                .from('meals')
+                .select('meal_type, description, calories, protein_g, carbs_g, fat_g, logged_at')
+                .eq('user_id', user.id)
+                .gte('logged_at', `${targetDate}T00:00:00`)
+                .lt('logged_at', `${targetDate}T23:59:59`)
+                .order('logged_at', { ascending: true }),
+            ])
+
+            const log = logRes.status === 'fulfilled' ? logRes.value.data : null
+            const meals = mealsRes.status === 'fulfilled' ? (mealsRes.value.data ?? []) : []
+
+            if (!log && meals.length === 0) {
+              return { success: true, message: `No nutrition data logged for ${targetDate}.` }
+            }
+
+            const parts: string[] = [`Nutrition for ${targetDate}:`]
+
+            if (log) {
+              if (log.adherence_score != null) parts.push(`Adherence: ${log.adherence_score}/100`)
+              if (log.total_calories != null) parts.push(`Calories: ${log.total_calories} kcal`)
+              if (log.protein_g != null) parts.push(`Protein: ${log.protein_g}g`)
+              if (log.has_alcohol) parts.push('⚠️ Alcohol consumed')
+              if (log.water_ml != null) parts.push(`Water: ${log.water_ml}ml`)
+              if (log.notes) parts.push(`Notes: ${log.notes}`)
+            }
+
+            if (meals.length > 0) {
+              parts.push(`\nMeals (${meals.length}):`)
+              for (const m of meals) {
+                const macros = [
+                  m.calories ? `${m.calories}kcal` : null,
+                  m.protein_g ? `P:${m.protein_g}g` : null,
+                  m.carbs_g ? `C:${m.carbs_g}g` : null,
+                  m.fat_g ? `F:${m.fat_g}g` : null,
+                ].filter(Boolean).join(' ')
+                parts.push(`- [${m.meal_type ?? 'meal'}] ${m.description ?? 'unlabelled'}${macros ? ` (${macros})` : ''}`)
+              }
+            }
+
+            return { success: true, summary: parts.join('\n') }
+          } catch (e) {
+            return { success: false, message: `Failed to fetch nutrition: ${String(e)}` }
+          }
+        },
+      },
+
+      // ── Trading session summary tool ─────────────────────────────
+
+      trading_session_summary: {
+        description:
+          'Fetch today\'s (or a specific day\'s) trading performance and rule compliance. ' +
+          'Use when user asks "how was my trading", "show me my trades", ' +
+          '"did I follow my rules today", or similar. ' +
+          'Automatically fires an adapt event if 3+ consecutive losing days detected.',
+        parameters: z.object({
+          date: z.string().optional().describe('ISO date YYYY-MM-DD. Defaults to today.'),
+        }),
+        execute: async ({ date }) => {
+          try {
+            const targetDate = date ?? new Date().toISOString().slice(0, 10)
+
+            // Fetch today's trades
+            const { data: trades } = await supabase
+              .from('trades')
+              .select('instrument, direction, gross_pnl, net_pnl, outcome, session, setup_tags, entry_time, exit_time, followed_rules, rules_broken, notes')
+              .eq('user_id', user.id)
+              .gte('entry_time', `${targetDate}T00:00:00`)
+              .lt('entry_time', `${targetDate}T23:59:59`)
+              .order('entry_time', { ascending: true })
+
+            // Fetch last 7 days of trades to detect loss streaks
+            const sevenDaysAgo = new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10)
+            const { data: recentTrades } = await supabase
+              .from('trades')
+              .select('entry_time, net_pnl, outcome')
+              .eq('user_id', user.id)
+              .gte('entry_time', `${sevenDaysAgo}T00:00:00`)
+              .neq('outcome', 'open')
+              .order('entry_time', { ascending: false })
+
+            if (!trades?.length) {
+              return { success: true, message: `No trades logged for ${targetDate}.` }
+            }
+
+            const totalPnl = trades.reduce((sum, t) => sum + (t.net_pnl ?? 0), 0)
+            const wins = trades.filter((t) => t.outcome === 'win').length
+            const losses = trades.filter((t) => t.outcome === 'loss').length
+            const rulesFollowed = trades.filter((t) => t.followed_rules === true).length
+
+            const parts: string[] = [
+              `Trading summary for ${targetDate}:`,
+              `Trades: ${trades.length} (${wins}W / ${losses}L)`,
+              `Net P&L: $${totalPnl.toFixed(2)}`,
+              rulesFollowed < trades.length
+                ? `⚠️ Rules broken on ${trades.length - rulesFollowed}/${trades.length} trades`
+                : `Rules followed on all trades ✅`,
+            ]
+
+            for (const t of trades) {
+              const pnl = t.net_pnl != null ? ` $${t.net_pnl.toFixed(2)}` : ''
+              const tags = t.setup_tags?.length ? ` [${t.setup_tags.join(',')}]` : ''
+              parts.push(`- ${t.instrument} ${t.direction} ${t.outcome}${pnl}${tags}`)
+            }
+
+            // Detect consecutive losing days
+            if (recentTrades && recentTrades.length > 0) {
+              // Group by date
+              const byDate = new Map<string, number>()
+              for (const t of recentTrades) {
+                const d = t.entry_time.slice(0, 10)
+                byDate.set(d, (byDate.get(d) ?? 0) + (t.net_pnl ?? 0))
+              }
+              const sortedDates = [...byDate.keys()].sort().reverse()
+              let streak = 0
+              for (const d of sortedDates) {
+                if ((byDate.get(d) ?? 0) < 0) streak++
+                else break
+              }
+              if (streak >= 3) {
+                maybeFireAdaptEvent(supabase, user.id, 'trading_loss_streak', {
+                  streak_days: streak,
+                  total_pnl: sortedDates.slice(0, streak).reduce((s, d) => s + (byDate.get(d) ?? 0), 0),
+                  as_of_date: targetDate,
+                }).catch((e) => console.error('[coach/trading] adapt trigger failed:', e))
+                parts.push(`\n⚠️ ${streak} consecutive losing days detected — adapt event fired.`)
+              }
+            }
+
+            return { success: true, summary: parts.join('\n') }
+          } catch (e) {
+            return { success: false, message: `Failed to fetch trading data: ${String(e)}` }
           }
         },
       },

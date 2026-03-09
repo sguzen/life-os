@@ -2,14 +2,16 @@
 
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import { Plus, History, CheckCircle2, AlertTriangle } from 'lucide-react'
+import { Plus, History, CheckCircle2, AlertTriangle, Sparkles } from 'lucide-react'
 import {
   getActiveAdaptationEvent,
   getCheckinsForEvent,
   getTodayCheckin,
 } from '@/lib/supabase/adapt'
+import { createClient } from '@/lib/supabase/server'
 import { TriageResult } from '@/components/adapt/TriageResult'
 import { RecoveryCheckin } from '@/components/adapt/RecoveryCheckin'
+import { AiProposalsList } from '@/components/adapt/AiProposalsList'
 
 export const metadata: Metadata = {
   title: 'Adapt',
@@ -28,7 +30,31 @@ function getDayNumber(reportedAt: string): number {
 }
 
 export default async function AdaptPage() {
-  const event = await getActiveAdaptationEvent()
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  const [event, aiProposalsRes] = await Promise.all([
+    getActiveAdaptationEvent(),
+    user
+      ? supabase
+          .from('adapt_events')
+          .select('id, event_type, payload, proposal, proposal_at, created_at')
+          .eq('user_id', user.id)
+          .eq('status', 'proposed')
+          .order('created_at', { ascending: false })
+          .limit(10)
+      : Promise.resolve({ data: [] }),
+  ])
+
+  const aiProposals = (aiProposalsRes.data ?? []) as Array<{
+    id: string
+    event_type: string
+    payload: Record<string, unknown>
+    proposal: Array<{ module: string; change_type: string; description: string; params?: Record<string, unknown> }>
+    proposal_at: string
+    created_at: string
+  }>
+
   const today = todayStr()
 
   const [checkins, todayCheckin] = event
@@ -69,6 +95,19 @@ export default async function AdaptPage() {
           )}
         </div>
       </div>
+
+      {/* AI-generated proposals from automated event detection */}
+      {aiProposals.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <Sparkles className="h-3.5 w-3.5 text-purple-400" />
+            <h2 className="text-xs font-semibold text-white/40 uppercase tracking-wider">
+              AI Proposals
+            </h2>
+          </div>
+          <AiProposalsList initialEvents={aiProposals} />
+        </div>
+      )}
 
       {/* No active event */}
       {!event && (
