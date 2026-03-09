@@ -1,17 +1,46 @@
 // Master AI Coach — streaming API with cross-module tool-calling
-// Reads all modules for context, can modify supplements and plan configs
+// Reads all modules for context, can modify supplements and plan configs.
+// Persists every turn to coach_conversations for session continuity.
 
 import { google } from '@ai-sdk/google'
 import { streamText, convertToModelMessages } from 'ai'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 import { MASTER_COACH_SYSTEM_PROMPT, buildFullSystemContext } from '@/lib/ai/master-coach'
+import type { UIMessage } from 'ai'
 
 export const runtime = 'nodejs'
 export const maxDuration = 90
 
+// ── Session context cache (5-min TTL) ──────────────────────────────────────
+// Avoids re-fetching the full system context on every turn of the same session.
+const contextCache = new Map<string, { context: string; ts: number }>()
+const CACHE_TTL_MS = 5 * 60 * 1000
+
+function getCachedContext(sessionId: string): string | null {
+  const entry = contextCache.get(sessionId)
+  if (!entry) return null
+  if (Date.now() - entry.ts > CACHE_TTL_MS) {
+    contextCache.delete(sessionId)
+    return null
+  }
+  return entry.context
+}
+
+function setCachedContext(sessionId: string, context: string) {
+  contextCache.set(sessionId, { context, ts: Date.now() })
+}
+
+// ── Helper: extract plain text from a UIMessage ─────────────────────────────
+function getMessageText(msg: UIMessage): string {
+  const textPart = msg.parts?.find((p) => p.type === 'text')
+  return (textPart && 'text' in textPart && textPart.text) ? textPart.text : ''
+}
+
+// ── POST — main chat handler ────────────────────────────────────────────────
 export async function POST(req: Request) {
-  const { messages } = await req.json()
+  const body = await req.json()
+  const { messages, sessionId } = body as { messages: UIMessage[]; sessionId?: string }
 
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -19,16 +48,61 @@ export async function POST(req: Request) {
     return new Response('Unauthorized', { status: 401 })
   }
 
-  let contextBlock = ''
-  try {
-    contextBlock = await buildFullSystemContext(supabase)
-  } catch (err) {
-    console.error('[coach] context build failed:', err)
-    contextBlock = '(Context unavailable — answering from conversation only.)'
+  // ── Build system context (cached per session) ───────────────────────────
+  let contextBlock: string
+  if (sessionId) {
+    const cached = getCachedContext(sessionId)
+    if (cached) {
+      contextBlock = cached
+    } else {
+      try {
+        contextBlock = await buildFullSystemContext(supabase)
+      } catch (err) {
+        console.error('[coach] context build failed:', err)
+        contextBlock = '(Context unavailable — answering from conversation only.)'
+      }
+      setCachedContext(sessionId, contextBlock)
+    }
+  } else {
+    try {
+      contextBlock = await buildFullSystemContext(supabase)
+    } catch (err) {
+      console.error('[coach] context build failed:', err)
+      contextBlock = '(Context unavailable — answering from conversation only.)'
+    }
   }
 
   const systemWithContext = `${MASTER_COACH_SYSTEM_PROMPT}\n\n---\n\n${contextBlock}`
-  const modelMessages = await convertToModelMessages(messages)
+
+  // ── Load DB history and deduplicate with client messages ────────────────
+  // Client pre-populates messages from the history endpoint using DB row IDs,
+  // so we only include DB rows whose IDs are NOT already in the client list.
+  const { data: dbHistory } = await supabase
+    .from('coach_conversations')
+    .select('id, role, content')
+    .eq('user_id', user.id)
+    .order('created_at', { ascending: true })
+    .limit(30)
+
+  const clientMessageIds = new Set(messages.map((m) => m.id))
+  const uniqueDbMessages = (dbHistory ?? []).filter((row) => !clientMessageIds.has(row.id))
+
+  const dbCoreMessages = uniqueDbMessages.map((row) => ({
+    role: row.role as 'user' | 'assistant',
+    content: row.content,
+  }))
+
+  const clientModelMessages = await convertToModelMessages(messages)
+  const modelMessages = [...dbCoreMessages, ...clientModelMessages]
+
+  // ── Identify the new user message to persist ────────────────────────────
+  // Last user message in the client array that wasn't loaded from DB (new turn).
+  const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user')
+  const lastUserText = lastUserMsg ? getMessageText(lastUserMsg) : null
+  // If the message ID exists in DB history, it was pre-loaded — don't save again.
+  const isNewUserMsg = lastUserMsg
+    ? !(dbHistory ?? []).some((row) => row.id === lastUserMsg.id)
+    : false
 
   const result = streamText({
     model: google('gemini-2.5-flash'),
@@ -36,7 +110,33 @@ export async function POST(req: Request) {
     messages: modelMessages,
     maxOutputTokens: 2048,
     temperature: 0.7,
-    maxSteps: 3, // allow tool call → result → follow-up
+    maxSteps: 3,
+
+    onFinish: async ({ text }) => {
+      try {
+        const sid = sessionId ?? crypto.randomUUID()
+
+        if (lastUserText && isNewUserMsg) {
+          await supabase.from('coach_conversations').insert({
+            user_id: user.id,
+            session_id: sid,
+            role: 'user',
+            content: lastUserText,
+          })
+        }
+
+        if (text) {
+          await supabase.from('coach_conversations').insert({
+            user_id: user.id,
+            session_id: sid,
+            role: 'assistant',
+            content: text,
+          })
+        }
+      } catch (err) {
+        console.error('[coach] failed to persist conversation:', err)
+      }
+    },
 
     tools: {
       // ── Supplement tools ────────────────────────────────────────

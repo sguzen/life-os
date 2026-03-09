@@ -1,8 +1,44 @@
-// Life OS — Master Coach page
-// Full-system AI coach with cross-module context and tool-calling
+'use client'
 
-import { MasterCoach } from '@/components/ai/master-coach'
+// /coach — Full-screen Life Coach page.
+// Uses the same CoachChat component and sessionId as GlobalCoachPanel so
+// conversations are continuous between the floating panel and this page.
+
+import { useState, useEffect } from 'react'
 import { Bot, Pill, Settings, TrendingUp, Activity, BarChart2 } from 'lucide-react'
+import { CoachChat } from '@/components/ai/coach-chat'
+import type { UIMessage } from 'ai'
+
+const SESSION_STORAGE_KEY = 'life-os-coach-session-id'
+
+interface HistoryRow {
+  id: string
+  sessionId: string
+  role: 'user' | 'assistant'
+  content: string
+  createdAt: string
+}
+
+function rowToUIMessage(row: HistoryRow): UIMessage {
+  return {
+    id: row.id,
+    role: row.role,
+    parts: [{ type: 'text', text: row.content }],
+    // @ts-expect-error – content field required by some internal AI SDK paths
+    content: row.content,
+  }
+}
+
+const SUGGESTION_CHIPS = [
+  'How am I doing this week?',
+  'Pause my iron supplement',
+  'What changes were made recently?',
+  'Am I on track for Belgrade?',
+  'Connect my trading results to my recovery data',
+  'Which habits are failing?',
+  'Am I in the right state to trade today?',
+  'Is my resting HR elevated? Should I rest?',
+]
 
 const CAPABILITIES = [
   { icon: Activity, label: 'Running', desc: 'Pace analysis, HR trends, race prep' },
@@ -14,6 +50,28 @@ const CAPABILITIES = [
 ]
 
 export default function CoachPage() {
+  const [sessionId, setSessionId] = useState<string | undefined>(undefined)
+  const [initialMessages, setInitialMessages] = useState<UIMessage[] | undefined>(undefined)
+
+  useEffect(() => {
+    // Share sessionId with GlobalCoachPanel via sessionStorage
+    let sid = sessionStorage.getItem(SESSION_STORAGE_KEY)
+    if (!sid) {
+      sid = crypto.randomUUID()
+      sessionStorage.setItem(SESSION_STORAGE_KEY, sid)
+    }
+    setSessionId(sid)
+
+    fetch('/api/ai/coach/history')
+      .then((res) => res.json())
+      .then((data: { messages: HistoryRow[] }) => {
+        setInitialMessages((data.messages ?? []).map(rowToUIMessage))
+      })
+      .catch(() => {
+        // Non-fatal — chat still works without pre-populated history
+      })
+  }, [])
+
   return (
     <div className="space-y-6 p-6">
       {/* Page header */}
@@ -42,8 +100,20 @@ export default function CoachPage() {
         ))}
       </div>
 
-      {/* Coach chat — full width */}
-      <MasterCoach />
+      {/* Coach chat — full width, taller message area for the dedicated page */}
+      <CoachChat
+        apiEndpoint="/api/ai/coach"
+        title="Life OS Coach"
+        subtitle="Gemini · all modules · can make changes"
+        placeholder="Ask about any module, or request a change…"
+        accentClass="text-violet-400"
+        accentBgClass="bg-violet-500/10"
+        accentBorderClass="border-violet-500/20"
+        sessionId={sessionId}
+        initialMessages={initialMessages}
+        suggestionChips={SUGGESTION_CHIPS}
+        messagesMaxHeightClass="max-h-[520px]"
+      />
     </div>
   )
 }

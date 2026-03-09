@@ -1,6 +1,6 @@
 'use client'
 
-// P5-03/04/05: Shared streaming coach chat component (AI SDK v6)
+// Shared streaming coach chat component (AI SDK v6)
 // Supports tool-invocation rendering and proposal cards (used by Life Coach).
 // Backward-compatible: existing coaches work unchanged without confirmEndpoint.
 
@@ -32,6 +32,14 @@ interface CoachChatProps {
   /** When set, tool proposals from the AI will show Confirm/Reject buttons that
    *  POST to this endpoint to execute the approved change. */
   confirmEndpoint?: string
+  /** Session ID for conversation persistence (stored in sessionStorage by parent). */
+  sessionId?: string
+  /** Pre-populated messages from history (DB rows mapped to UIMessage shape). */
+  initialMessages?: UIMessage[]
+  /** Suggestion chips shown in the empty state. */
+  suggestionChips?: string[]
+  /** Max height of the messages area (Tailwind class). Defaults to max-h-96. */
+  messagesMaxHeightClass?: string
 }
 
 // ── Proposal / tool result types ────────────────────────────────────────────
@@ -189,13 +197,10 @@ function ProposalCard({
 
   return (
     <div className="rounded-xl border border-violet-500/30 bg-violet-500/5 overflow-hidden">
-      {/* Header */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-violet-500/20 bg-violet-500/10">
         <div className="h-1.5 w-1.5 rounded-full bg-violet-400 animate-pulse" />
         <span className="text-xs font-semibold text-violet-300">Coach Proposal</span>
       </div>
-
-      {/* Body */}
       <div className="px-3 py-2.5 space-y-1.5">
         <p className="text-xs font-semibold text-white/90">{proposal.displayTitle}</p>
         <div className="text-xs text-white/60 leading-relaxed">
@@ -213,8 +218,6 @@ function ProposalCard({
           </div>
         )}
       </div>
-
-      {/* Actions */}
       <div className="flex items-center gap-2 px-3 py-2 border-t border-violet-500/20">
         <button
           onClick={handleConfirm}
@@ -273,7 +276,6 @@ function ToolInvocationRenderer({
 
   const result = part.result
 
-  // Render proposal card if confirmEndpoint is provided
   if (result && 'type' in result && result.type === 'proposal' && confirmEndpoint) {
     const proposalState = proposalStates[part.toolInvocationId] ?? 'pending'
     return (
@@ -287,7 +289,6 @@ function ToolInvocationRenderer({
     )
   }
 
-  // Render inline error
   if (result && 'type' in result && result.type === 'error') {
     return (
       <div className="flex items-start gap-2.5 px-3 py-2 rounded-lg border bg-red-500/5 border-red-500/20 text-xs">
@@ -297,7 +298,6 @@ function ToolInvocationRenderer({
     )
   }
 
-  // Render direct-write success (logMealComplete, updateSupplement, logManualAudit)
   if (result && 'success' in result && result.success === true && 'message' in result) {
     return (
       <div className="flex items-start gap-2.5 px-3 py-2 rounded-lg border bg-emerald-500/5 border-emerald-500/20 text-xs">
@@ -307,7 +307,6 @@ function ToolInvocationRenderer({
     )
   }
 
-  // Render direct-write failure
   if (result && 'success' in result && result.success === false && 'message' in result) {
     return (
       <div className="flex items-start gap-2.5 px-3 py-2 rounded-lg border bg-red-500/5 border-red-500/20 text-xs">
@@ -339,17 +338,33 @@ export function CoachChat({
   accentBorderClass = 'border-indigo-400/20',
   extraBody = {},
   confirmEndpoint,
+  sessionId,
+  initialMessages,
+  suggestionChips,
+  messagesMaxHeightClass = 'max-h-96',
 }: CoachChatProps) {
   const [input, setInput] = useState('')
   const [proposalStates, setProposalStates] = useState<Record<string, ProposalState>>({})
   const bottomRef = useRef<HTMLDivElement>(null)
 
+  // Merge sessionId into body if provided
+  const body = sessionId ? { ...extraBody, sessionId } : extraBody
+
   const { messages, sendMessage, status, setMessages } = useChat({
-    transport: new DefaultChatTransport({ api: apiEndpoint, body: extraBody }),
+    transport: new DefaultChatTransport({ api: apiEndpoint, body }),
+    initialMessages,
   })
 
   const isLoading = status === 'submitted' || status === 'streaming'
   const hasMessages = messages.length > 0
+
+  // Update messages when initialMessages changes (e.g. history loads after mount)
+  useEffect(() => {
+    if (initialMessages && initialMessages.length > 0 && messages.length === 0) {
+      setMessages(initialMessages)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialMessages])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -365,6 +380,10 @@ export function CoachChat({
     if (!text || isLoading) return
     setInput('')
     await sendMessage({ text })
+  }
+
+  const handleChipClick = (chip: string) => {
+    setInput(chip)
   }
 
   return (
@@ -388,7 +407,7 @@ export function CoachChat({
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto max-h-96 px-5 py-4 space-y-4 min-h-[120px]">
+      <div className={`flex-1 overflow-y-auto ${messagesMaxHeightClass} px-5 py-4 space-y-4 min-h-[120px]`}>
         {!hasMessages && (
           <div className="flex flex-col items-center justify-center h-24 gap-2 text-center">
             <Bot className={`h-8 w-8 ${accentClass} opacity-40`} />
@@ -399,7 +418,6 @@ export function CoachChat({
         {messages.map((msg) => {
           const text = getMessageText(msg)
 
-          // Collect tool-invocation parts (only present for assistant messages with tools)
           const toolParts = msg.parts.filter(
             (p) => p.type === 'tool-invocation'
           ) as Array<{
@@ -473,6 +491,21 @@ export function CoachChat({
 
         <div ref={bottomRef} />
       </div>
+
+      {/* Suggestion chips (shown when no messages) */}
+      {!hasMessages && suggestionChips && suggestionChips.length > 0 && (
+        <div className="px-5 pb-3 flex flex-wrap gap-1.5">
+          {suggestionChips.map((chip) => (
+            <button
+              key={chip}
+              onClick={() => handleChipClick(chip)}
+              className="text-xs px-2.5 py-1 rounded-full bg-white/5 border border-white/10 text-white/40 hover:text-white/70 hover:bg-white/10 transition-colors"
+            >
+              {chip}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Input */}
       <form

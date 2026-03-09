@@ -1,17 +1,77 @@
 'use client'
 
 // GlobalCoachPanel — persistent floating Life Coach accessible from any page.
-// A floating button (bottom-right) opens a collapsible side panel containing
-// the full LifeCoach component with module focus + proposal cards.
+// Session ID is stored in sessionStorage so the panel and /coach page share context.
 
 import { useState, useEffect } from 'react'
 import { Brain, X, ChevronRight } from 'lucide-react'
-import { LifeCoach } from '@/components/ai/life-coach'
+import { CoachChat } from '@/components/ai/coach-chat'
+import type { UIMessage } from 'ai'
+
+const SESSION_STORAGE_KEY = 'life-os-coach-session-id'
+
+const SUGGESTION_CHIPS = [
+  'How am I doing this week?',
+  'Pause my iron supplement',
+  'What changes were made recently?',
+  'Am I on track for Belgrade?',
+  'Connect my trading results to my recovery data',
+  'Which habits are failing?',
+]
+
+// ── History row from GET /api/ai/coach/history ───────────────────────────────
+interface HistoryRow {
+  id: string
+  sessionId: string
+  role: 'user' | 'assistant'
+  content: string
+  createdAt: string
+}
+
+function rowToUIMessage(row: HistoryRow): UIMessage {
+  return {
+    id: row.id,
+    role: row.role,
+    parts: [{ type: 'text', text: row.content }],
+    // @ts-expect-error – content field required by some internal AI SDK paths
+    content: row.content,
+  }
+}
 
 export function GlobalCoachPanel() {
   const [open, setOpen] = useState(false)
+  const [sessionId, setSessionId] = useState<string | undefined>(undefined)
+  const [initialMessages, setInitialMessages] = useState<UIMessage[] | undefined>(undefined)
+  const [historyLoaded, setHistoryLoaded] = useState(false)
 
-  // Close on Escape
+  // ── Initialise sessionId from sessionStorage ──────────────────────────────
+  useEffect(() => {
+    let sid = sessionStorage.getItem(SESSION_STORAGE_KEY)
+    if (!sid) {
+      sid = crypto.randomUUID()
+      sessionStorage.setItem(SESSION_STORAGE_KEY, sid)
+    }
+    setSessionId(sid)
+  }, [])
+
+  // ── Load history when panel opens for the first time ─────────────────────
+  useEffect(() => {
+    if (!open || historyLoaded) return
+
+    fetch('/api/ai/coach/history')
+      .then((res) => res.json())
+      .then((data: { messages: HistoryRow[] }) => {
+        const uiMessages = (data.messages ?? []).map(rowToUIMessage)
+        setInitialMessages(uiMessages)
+        setHistoryLoaded(true)
+      })
+      .catch(() => {
+        // History load failure is non-fatal; chat still works without it
+        setHistoryLoaded(true)
+      })
+  }, [open, historyLoaded])
+
+  // ── Keyboard shortcut: Escape closes panel ────────────────────────────────
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') setOpen(false)
@@ -52,7 +112,7 @@ export function GlobalCoachPanel() {
       {/* Side panel */}
       <div
         className={`
-          fixed top-0 right-0 z-50 h-screen w-full sm:w-[480px]
+          fixed top-0 right-0 z-50 h-screen w-full sm:w-[500px]
           flex flex-col
           border-l border-white/8 bg-[#0a0a0a]
           shadow-2xl
@@ -64,7 +124,7 @@ export function GlobalCoachPanel() {
         <div className="flex shrink-0 items-center justify-between border-b border-white/8 px-4 py-3">
           <div className="flex items-center gap-2">
             <Brain className="h-4 w-4 text-violet-400" />
-            <span className="text-sm font-semibold text-white">Global Life Coach</span>
+            <span className="text-sm font-semibold text-white">Life Coach</span>
             <span className="text-xs text-white/30">· all modules</span>
           </div>
           <button
@@ -76,9 +136,25 @@ export function GlobalCoachPanel() {
           </button>
         </div>
 
-        {/* Panel body — scrollable */}
-        <div className="flex-1 overflow-y-auto p-4">
-          {open && <LifeCoach />}
+        {/* Panel body — CoachChat fills available height */}
+        <div className="flex-1 overflow-hidden p-4">
+          {open && (
+            <div className="h-full flex flex-col">
+              <CoachChat
+                apiEndpoint="/api/ai/coach"
+                title="Life OS Coach"
+                subtitle="Gemini · all modules · can make changes"
+                placeholder="Ask about any module, or request a change…"
+                accentClass="text-violet-400"
+                accentBgClass="bg-violet-500/10"
+                accentBorderClass="border-violet-500/20"
+                sessionId={sessionId}
+                initialMessages={initialMessages}
+                suggestionChips={SUGGESTION_CHIPS}
+                messagesMaxHeightClass="max-h-[calc(100vh-260px)]"
+              />
+            </div>
+          )}
         </div>
 
         {/* Collapse handle */}
