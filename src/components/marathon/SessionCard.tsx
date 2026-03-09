@@ -115,7 +115,7 @@ export function SessionCard({ planned, actual, date, isToday, compact }: Session
       {/* Actual results */}
       {actual && status !== 'pending' && (
         <div className={cn(
-          'rounded-lg p-3 space-y-1 text-sm',
+          'rounded-lg p-3 space-y-2 text-sm',
           wentTooFast ? 'bg-amber-400/10 border border-amber-400/20' : 'bg-white/5',
         )}>
           <div className="flex gap-4 font-mono text-xs flex-wrap">
@@ -127,8 +127,34 @@ export function SessionCard({ planned, actual, date, isToday, compact }: Session
               </span>
             )}
             {actual.actual_avg_hr && <span className="text-white/50">HR {actual.actual_avg_hr}</span>}
+            {actual.flag && (
+              <span className={cn(
+                'inline-flex items-center gap-1 text-xs font-medium',
+                actual.flag === 'ok' ? 'text-emerald-400' :
+                actual.flag === 'warning' ? 'text-amber-400' : 'text-red-400',
+              )}>
+                <span className={cn(
+                  'h-1.5 w-1.5 rounded-full',
+                  actual.flag === 'ok' ? 'bg-emerald-400' :
+                  actual.flag === 'warning' ? 'bg-amber-400' : 'bg-red-400',
+                )} />
+                {actual.flag}
+              </span>
+            )}
           </div>
           {actual.notes && <p className="text-xs text-white/40">{actual.notes}</p>}
+          {actual.coach_notes && (
+            <details className="group">
+              <summary className="cursor-pointer text-xs text-violet-400/70 hover:text-violet-400 transition-colors list-none flex items-center gap-1 select-none">
+                <span className="group-open:hidden">▶</span>
+                <span className="hidden group-open:inline">▼</span>
+                Coach notes
+              </summary>
+              <div className="mt-2 text-xs text-white/60 leading-relaxed whitespace-pre-wrap border-t border-white/10 pt-2">
+                {actual.coach_notes}
+              </div>
+            </details>
+          )}
         </div>
       )}
 

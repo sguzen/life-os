@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { z } from 'zod'
-import { CheckCircle2, Loader2 } from 'lucide-react'
+import { CheckCircle2, Loader2, ArrowRight } from 'lucide-react'
 import { PaceDisciplineAlert } from './PaceDisciplineAlert'
 import { checkWentTooFast, SESSION_TYPE_LABELS } from '@/lib/marathon/plan'
 import type { PlannedSession } from '@/lib/marathon/plan'
@@ -47,6 +47,8 @@ export function SessionLogForm({ date, planned, weekNumber, existingActual }: Se
   const [showAlert, setShowAlert] = useState(false)
   const [alertData, setAlertData] = useState<{ actual: string; deviation: number } | null>(null)
   const [acknowledged, setAcknowledged] = useState(false)
+  const [isEvaluating, setIsEvaluating] = useState(false)
+  const [evalResult, setEvalResult] = useState<{ evaluation: string; flag: string } | null>(null)
 
   const isRest = planned.type === 'REST'
   const needsWarmup = ['TEMPO', 'VO2_MAX'].includes(planned.type)
@@ -136,10 +138,31 @@ export function SessionLogForm({ date, planned, weekNumber, existingActual }: Se
       }
 
       setSaved(true)
-      startTransition(() => {
-        router.refresh()
-        setTimeout(() => router.push('/marathon'), 1500)
-      })
+      startTransition(() => { router.refresh() })
+
+      // Fetch session ID then trigger eval
+      try {
+        setIsEvaluating(true)
+        const sessionRes = await fetch(`/api/marathon/session/${date}`)
+        const sessionData = sessionRes.ok ? await sessionRes.json() : null
+        const sessionId = sessionData?.id
+
+        if (sessionId) {
+          const evalRes = await fetch('/api/ai/training-eval', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sessionId }),
+          })
+          if (evalRes.ok) {
+            const data = await evalRes.json()
+            setEvalResult(data)
+          }
+        }
+      } catch {
+        // eval failed silently — user can still navigate away
+      } finally {
+        setIsEvaluating(false)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save session')
     }
@@ -147,10 +170,39 @@ export function SessionLogForm({ date, planned, weekNumber, existingActual }: Se
 
   if (saved) {
     return (
-      <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
-        <CheckCircle2 className="h-10 w-10 text-emerald-400" />
-        <p className="text-lg font-semibold text-white">Session logged</p>
-        <p className="text-sm text-white/40">Redirecting to training hub…</p>
+      <div className="space-y-6">
+        <div className="flex items-center gap-3">
+          <CheckCircle2 className="h-6 w-6 text-emerald-400 shrink-0" />
+          <p className="text-base font-semibold text-white">Session logged</p>
+        </div>
+
+        {isEvaluating && (
+          <div className="flex items-center gap-3 rounded-xl border border-violet-500/20 bg-violet-500/10 px-4 py-4">
+            <Loader2 className="h-4 w-4 animate-spin text-violet-400 shrink-0" />
+            <p className="text-sm text-violet-300">Coach is evaluating your session…</p>
+          </div>
+        )}
+
+        {evalResult && (
+          <div className="rounded-xl border border-violet-500/30 bg-violet-500/10 p-5 space-y-3">
+            <div className="flex items-center gap-2">
+              <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${
+                evalResult.flag === 'ok' ? 'bg-emerald-400' :
+                evalResult.flag === 'warning' ? 'bg-amber-400' : 'bg-red-400'
+              }`} />
+              <span className="text-xs font-semibold text-violet-300 uppercase tracking-wider">Coach Evaluation</span>
+            </div>
+            <div className="text-sm text-white/80 leading-relaxed whitespace-pre-wrap">{evalResult.evaluation}</div>
+          </div>
+        )}
+
+        <a
+          href="/marathon"
+          className="flex items-center gap-2 text-sm text-white/40 hover:text-white/70 transition-colors"
+        >
+          Back to training hub
+          <ArrowRight className="h-3.5 w-3.5" />
+        </a>
       </div>
     )
   }
@@ -163,14 +215,26 @@ export function SessionLogForm({ date, planned, weekNumber, existingActual }: Se
           actualPace={alertData.actual}
           deviationSec={alertData.deviation}
           sessionType={planned.type}
-          onAcknowledge={() => {
+          onAcknowledge={async () => {
             setAcknowledged(true)
             setShowAlert(false)
             setSaved(true)
-            startTransition(() => {
-              router.refresh()
-              setTimeout(() => router.push('/marathon'), 1500)
-            })
+            startTransition(() => { router.refresh() })
+            try {
+              setIsEvaluating(true)
+              const sessionRes = await fetch(`/api/marathon/session/${date}`)
+              const sessionData = sessionRes.ok ? await sessionRes.json() : null
+              if (sessionData?.id) {
+                const evalRes = await fetch('/api/ai/training-eval', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ sessionId: sessionData.id }),
+                })
+                if (evalRes.ok) setEvalResult(await evalRes.json())
+              }
+            } catch { /* silent */ } finally {
+              setIsEvaluating(false)
+            }
           }}
         />
       )}

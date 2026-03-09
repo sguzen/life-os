@@ -46,6 +46,8 @@ export interface TrainingSessionRow {
   skipped_warmup: boolean
   notes: string | null
   ai_feedback: string | null
+  coach_notes: string | null
+  flag: 'ok' | 'warning' | 'rest' | null
   resting_hr: number | null
   created_at: string
   updated_at: string
