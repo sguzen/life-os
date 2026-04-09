@@ -143,5 +143,6 @@ export async function POST(req: Request) {
     },
   });
 
-  return result.toAIStreamResponse();
+  // This handles both text AND generative UI tool invocations safely
+  return result.toTextStreamResponse();
 }
