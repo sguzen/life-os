@@ -333,8 +333,16 @@ function ToolInvocationRenderer({
 // ── Extract plain text from v6 UIMessage parts ───────────────────────────────
 
 function getMessageText(msg: UIMessage): string {
-  const textPart = msg.parts.find((p) => p.type === 'text')
-  return textPart && 'text' in textPart ? textPart.text : ''
+  // 1. Check if the newer 'parts' array exists (for complex AI responses)
+  if (msg.parts && Array.isArray(msg.parts)) {
+    const textPart = msg.parts.find((p: any) => p.type === 'text')
+    if (textPart && 'text' in textPart) {
+      return textPart.text
+    }
+  }
+
+  // 2. Fallback to the standard 'content' string (used by user inputs and standard AI text)
+  return (msg as any).content || ''
 }
 
 // ── Main component ───────────────────────────────────────────────────────────
