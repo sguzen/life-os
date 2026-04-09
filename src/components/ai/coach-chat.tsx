@@ -17,6 +17,7 @@ import {
   AlertCircle,
 } from 'lucide-react'
 import type { UIMessage } from 'ai'
+import { PlanDraftPreview } from '@/components/marathon/PlanDraftPreview'
 
 // ── Props ───────────────────────────────────────────────────────────────────
 
@@ -275,6 +276,17 @@ function ToolInvocationRenderer({
   }
 
   const result = part.result
+
+  // Generative UI: render interactive plan preview for draft_running_plan results
+  if (
+    part.toolName === 'draft_running_plan' &&
+    result &&
+    'draftedSessions' in result &&
+    Array.isArray((result as Record<string, unknown>).draftedSessions)
+  ) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return <PlanDraftPreview draftedSessions={(result as any).draftedSessions} />
+  }
 
   if (result && 'type' in result && result.type === 'proposal' && confirmEndpoint) {
     const proposalState = proposalStates[part.toolInvocationId] ?? 'pending'

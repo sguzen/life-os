@@ -27,12 +27,13 @@ export async function POST(req: Request) {
 
     Rules:
     - Never guess vitals. If you don't know, use the fetch_vitals tool.
-    - Be concise, direct, and actionable.`,
+    - Be concise, direct, and actionable.
+    - If the user wants to start a fresh running plan or states their race is soon, use \`clear_running_plan\` to wipe the slate, then use \`draft_running_plan\` to propose a new schedule for them to approve.`,
     messages,
-    
+
     // CRITICAL: maxSteps > 1 allows the LLM to call a tool, parse the JSON result, and formulate a human-readable reply.
-    maxSteps: 5, 
-    
+    maxSteps: 5,
+
     tools: {
       // Tool 1: Fetch Morning Vitals
       fetch_vitals: tool({
@@ -72,7 +73,7 @@ export async function POST(req: Request) {
           return data || [];
         },
       }),
-      
+
       // Tool 3: Create a Task (Proactive Coaching)
       create_task: tool({
         description: 'Assign a new task to the user based on our conversation (e.g., "Take Magnesium before bed", "Lower trade size today").',
@@ -89,11 +90,48 @@ export async function POST(req: Request) {
                 target_date,
                 completed: false
              });
-             
+
            if (error) return { status: 'Failed to create task.' };
            return { status: 'Task successfully added to the user\'s agenda.' };
         }
-      })
+      }),
+
+      // Tool 4: Clear future running plan
+      clear_running_plan: tool({
+        description: 'Deletes all future scheduled running sessions (scheduled_date >= today) from the marathon_plan table. Use this before drafting a fresh plan.',
+        parameters: z.object({}),
+        execute: async () => {
+          const today = new Date().toISOString().split('T')[0];
+          const { error } = await supabase
+            .from('marathon_plan')
+            .delete()
+            .eq('user_id', user.id)
+            .gte('scheduled_date', today);
+
+          if (error) return { success: false, message: 'Failed to clear running plan.' };
+          return { success: true, message: 'Running plan cleared. Ready to draft a new schedule.' };
+        },
+      }),
+
+      // Tool 5: Draft a running plan (returns sessions to client for interactive approval)
+      draft_running_plan: tool({
+        description: "Drafts a multi-day or multi-week running plan based on the user's goals. This will display a preview to the user for approval. Do NOT hallucinate past dates.",
+        parameters: z.object({
+          sessions: z.array(
+            z.object({
+              scheduled_date: z.string().describe('YYYY-MM-DD format. Must be today or a future date.'),
+              workout_type: z.string().describe('e.g. Easy Run, Tempo, Long Run, Intervals, Rest'),
+              target_distance: z.number().describe('Distance in kilometres'),
+              target_pace: z.string().describe('Target pace string, e.g. "5:30/km" or "Easy"'),
+            })
+          ).describe('Ordered list of training sessions for the plan'),
+        }),
+        execute: async ({ sessions }) => {
+          // Return the drafted sessions to the client — the frontend renders
+          // PlanDraftPreview so the user can edit and approve before saving.
+          return { draftedSessions: sessions };
+        },
+      }),
     },
   });
 
