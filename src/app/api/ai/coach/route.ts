@@ -18,7 +18,9 @@ export async function POST(req: Request) {
     return new Response('Unauthorized', { status: 401 });
   }
 
-  const result = await streamText({
+  let result
+  try {
+    result = await streamText({
     model: google('gemini-2.5-flash'),
     system: `You are Life OS, an elite, highly contextual life coach.
     You have direct access to the user's database. Before giving advice on trading, running, or nutrition, ALWAYS use your tools to check their physical and psychological state.
@@ -97,9 +99,11 @@ export async function POST(req: Request) {
       }),
 
       // Tool 4: Clear future running plan
+      // NOTE: Gemini rejects tools with a fully-empty parameters schema, so we
+      // include a no-op optional field as a workaround.
       clear_running_plan: tool({
         description: 'Deletes all future scheduled running sessions (scheduled_date >= today) from the marathon_plan table. Use this before drafting a fresh plan.',
-        parameters: z.object({}),
+        parameters: z.object({ _confirm: z.boolean().optional() }),
         execute: async () => {
           const today = new Date().toISOString().split('T')[0];
           const { error } = await supabase
@@ -133,7 +137,15 @@ export async function POST(req: Request) {
         },
       }),
     },
-  });
+  })
+  } catch (err) {
+    console.error('[coach/route] streamText error:', err)
+    const message = err instanceof Error ? err.message : String(err)
+    return new Response(JSON.stringify({ error: message }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
 
   return result.toDataStreamResponse();
 }
