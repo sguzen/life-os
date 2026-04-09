@@ -1,5 +1,5 @@
 export interface MorningLogInput {
-  date?: string
+  log_date?: string
   sleep_hours?: number | null
   rhr?: number | null
   hrv?: number | null
