@@ -3,11 +3,36 @@
 // Persists every turn to coach_conversations for session continuity.
 
 import { google } from '@ai-sdk/google';
-import { streamText, tool, formatStreamPart } from 'ai';
+import { streamText, tool } from 'ai';
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/server';
 
 export const maxDuration = 60;
+
+/**
+ * @ai-sdk/google v3.0.60 emits a 'stream-start' chunk that ai v3.4.9's
+ * runToolsTransformation doesn't handle, crashing the stream before any
+ * downstream filter can catch it. Wrap the model's doStream to strip that
+ * chunk at the provider level, before the AI SDK's internal transforms run.
+ */
+function withoutStreamStart(model: any): any {
+  return {
+    ...model,
+    async doStream(options: any) {
+      const response = await model.doStream(options);
+      return {
+        ...response,
+        stream: response.stream.pipeThrough(
+          new TransformStream({
+            transform(chunk: any, controller: TransformStreamDefaultController) {
+              if (chunk.type !== 'stream-start') controller.enqueue(chunk);
+            },
+          }),
+        ),
+      };
+    },
+  };
+}
 
 export async function POST(req: Request) {
   const { messages } = await req.json();
@@ -19,7 +44,7 @@ export async function POST(req: Request) {
   }
 
   const result = await streamText({
-    model: google('gemini-2.5-flash'),
+    model: withoutStreamStart(google('gemini-2.5-flash')),
     system: `You are Life OS, an elite, highly contextual life coach.
     You have direct access to the user's database. Before giving advice on trading, running, or nutrition, ALWAYS use your tools to check their physical and psychological state.
 
@@ -140,63 +165,5 @@ export async function POST(req: Request) {
     },
   });
 
-  // ai v3.4.9's toDataStreamResponse() throws on 'stream-start' chunks emitted
-  // by @ai-sdk/google v3.0.60. Build the data stream manually, skipping that
-  // chunk type so unknown chunks never reach the broken transformer.
-  const encoder = new TextEncoder();
-  const dataStream = result.fullStream.pipeThrough(
-    new TransformStream({
-      transform(chunk: any, controller) {
-        switch (chunk.type) {
-          case 'stream-start':
-            break; // skip — not handled by ai v3 transformer
-          case 'text-delta':
-            controller.enqueue(encoder.encode(formatStreamPart('text', chunk.textDelta)));
-            break;
-          case 'tool-call-streaming-start':
-            controller.enqueue(encoder.encode(formatStreamPart('tool_call_streaming_start', {
-              toolCallId: chunk.toolCallId,
-              toolName: chunk.toolName,
-            })));
-            break;
-          case 'tool-call-delta':
-            controller.enqueue(encoder.encode(formatStreamPart('tool_call_delta', {
-              toolCallId: chunk.toolCallId,
-              argsTextDelta: chunk.argsTextDelta,
-            })));
-            break;
-          case 'tool-call':
-            controller.enqueue(encoder.encode(formatStreamPart('tool_call', {
-              toolCallId: chunk.toolCallId,
-              toolName: chunk.toolName,
-              args: chunk.args,
-            })));
-            break;
-          case 'tool-result':
-            controller.enqueue(encoder.encode(formatStreamPart('tool_result', {
-              toolCallId: chunk.toolCallId,
-              result: chunk.result,
-            })));
-            break;
-          case 'finish':
-            controller.enqueue(encoder.encode(formatStreamPart('finish_message', {
-              finishReason: chunk.finishReason,
-              usage: chunk.usage,
-            })));
-            break;
-          case 'error':
-            controller.enqueue(encoder.encode(formatStreamPart('error', String(chunk.error))));
-            break;
-          // all other future chunk types: ignore gracefully
-        }
-      },
-    }),
-  );
-
-  return new Response(dataStream, {
-    headers: {
-      'Content-Type': 'text/plain; charset=utf-8',
-      'X-Vercel-AI-Data-Stream': 'v1',
-    },
-  });
+  return result.toDataStreamResponse();
 }
