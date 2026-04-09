@@ -12,11 +12,11 @@ export async function submitMorningLog(
   } = await supabase.auth.getUser()
   if (!user) return { success: false, error: 'Not authenticated' }
 
-  const date = data.date ?? new Date().toISOString().slice(0, 10)
+  const log_date = data.log_date ?? new Date().toISOString().slice(0, 10)
 
   const { error } = await supabase
     .from('morning_logs')
-    .upsert({ ...data, date, user_id: user.id }, { onConflict: 'user_id,date' })
+    .upsert({ ...data, log_date, user_id: user.id }, { onConflict: 'user_id,log_date' })
 
   if (error) return { success: false, error: error.message }
   return { success: true }
@@ -35,7 +35,7 @@ export async function getTodaysMorningLog(): Promise<MorningLog | null> {
     .from('morning_logs')
     .select('*')
     .eq('user_id', user.id)
-    .eq('date', today)
+    .eq('log_date', today)
     .maybeSingle()
 
   return data as MorningLog | null
@@ -56,8 +56,8 @@ export async function getRecentMorningLogs(days: number): Promise<MorningLog[]> 
     .from('morning_logs')
     .select('*')
     .eq('user_id', user.id)
-    .gte('date', cutoffStr)
-    .order('date', { ascending: false })
+    .gte('log_date', cutoffStr)
+    .order('log_date', { ascending: false })
 
   return (data ?? []) as MorningLog[]
 }

@@ -45,7 +45,7 @@ export async function POST(req: Request) {
             .from('morning_logs')
             .select('sleep_hours, rhr, hrv, mood_score, energy_level, journal_notes')
             .eq('user_id', user.id)
-            .eq('date', date)
+            .eq('log_date', date)
             .single();
 
           if (error || !data) {
