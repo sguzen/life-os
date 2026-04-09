@@ -3,7 +3,7 @@
 // Persists every turn to coach_conversations for session continuity.
 
 import { google } from '@ai-sdk/google';
-import { streamText, convertToModelMessages, StreamingTextResponse, tool } from 'ai';
+import { streamText, tool } from 'ai';
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/server';
 
@@ -18,10 +18,7 @@ export async function POST(req: Request) {
     return new Response('Unauthorized', { status: 401 });
   }
 
-  // NOTE: do NOT await streamText — in AI SDK v6 it returns a StreamTextResult
-  // synchronously. Awaiting it resolves to the final text and loses the streaming
-  // helper methods like toDataStreamResponse().
-  const result = streamText({
+  const result = await streamText({
     model: google('gemini-2.5-flash'),
     system: `You are Life OS, an elite, highly contextual life coach.
     You have direct access to the user's database. Before giving advice on trading, running, or nutrition, ALWAYS use your tools to check their physical and psychological state.
@@ -143,5 +140,5 @@ export async function POST(req: Request) {
     },
   });
 
-  return new StreamingTextResponse(result.toAIStream());
+  return result.toDataStreamResponse();
 }
