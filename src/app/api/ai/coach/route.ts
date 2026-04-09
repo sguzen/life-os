@@ -3,7 +3,7 @@
 // Persists every turn to coach_conversations for session continuity.
 
 import { google } from '@ai-sdk/google';
-import { streamText, tool } from 'ai';
+import { streamText, convertToModelMessages, StreamingTextResponse, tool } from 'ai';
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/server';
 
@@ -143,6 +143,5 @@ export async function POST(req: Request) {
     },
   });
 
-  // This handles both text AND generative UI tool invocations safely
-  return result.toTextStreamResponse();
+  return new StreamingTextResponse(result.toAIStream());
 }
