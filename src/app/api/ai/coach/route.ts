@@ -2,31 +2,29 @@
 // Reads all modules for context, can modify supplements and plan configs.
 // Persists every turn to coach_conversations for session continuity.
 
-import { openai } from '@ai-sdk/openai'; // Or whichever provider you are using
+import { google } from '@ai-sdk/google';
 import { streamText, tool } from 'ai';
 import { z } from 'zod';
-import { createClient } from '@/lib/supabase/server'; 
+import { createClient } from '@/lib/supabase/server';
 
-// Allow the route more time to execute, since the AI might take multiple steps (thought -> tool -> thought -> reply)
-export const maxDuration = 60; 
+export const maxDuration = 60;
 
 export async function POST(req: Request) {
   const { messages } = await req.json();
   const supabase = createClient();
-  
-  // Secure the route
+
   const { data: { user }, error: authError } = await supabase.auth.getUser();
   if (authError || !user) {
     return new Response('Unauthorized', { status: 401 });
   }
 
   const result = await streamText({
-    model: openai('gpt-4o'), // Swap with anthropic('claude-3-5-sonnet-20240620') if preferred
-    system: `You are Life OS, an elite, highly contextual life coach. 
+    model: google('gemini-2.5-flash'),
+    system: `You are Life OS, an elite, highly contextual life coach.
     You have direct access to the user's database. Before giving advice on trading, running, or nutrition, ALWAYS use your tools to check their physical and psychological state.
-    
-    Current Date: ${new Date().toISOString().split('T')[0]}
-    
+
+    Current Date and Time: ${new Date().toISOString()}
+
     Rules:
     - Never guess vitals. If you don't know, use the fetch_vitals tool.
     - Be concise, direct, and actionable.`,
