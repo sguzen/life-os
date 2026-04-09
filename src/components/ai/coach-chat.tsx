@@ -6,7 +6,6 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useChat } from '@ai-sdk/react'
-import { DefaultChatTransport } from 'ai'
 import {
   Bot,
   SendHorizonal,
@@ -362,8 +361,9 @@ export function CoachChat({
   // Merge sessionId into body if provided
   const body = sessionId ? { ...extraBody, sessionId } : extraBody
 
-  const { messages, sendMessage, status, setMessages } = useChat({
-    transport: new DefaultChatTransport({ api: apiEndpoint, body }),
+  const { messages, append, status, setMessages } = useChat({
+    api: apiEndpoint,
+    body,
     initialMessages,
   })
 
@@ -391,7 +391,7 @@ export function CoachChat({
     const text = input.trim()
     if (!text || isLoading) return
     setInput('')
-    await sendMessage({ text })
+    await append({ role: 'user', content: text })
   }
 
   const handleChipClick = (chip: string) => {
