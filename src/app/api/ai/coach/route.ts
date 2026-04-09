@@ -3,7 +3,7 @@
 // Persists every turn to coach_conversations for session continuity.
 
 import { google } from '@ai-sdk/google';
-import { streamText, tool } from 'ai';
+import { streamText, tool, formatStreamPart } from 'ai';
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/server';
 
@@ -140,5 +140,63 @@ export async function POST(req: Request) {
     },
   });
 
-  return result.toDataStreamResponse();
+  // ai v3.4.9's toDataStreamResponse() throws on 'stream-start' chunks emitted
+  // by @ai-sdk/google v3.0.60. Build the data stream manually, skipping that
+  // chunk type so unknown chunks never reach the broken transformer.
+  const encoder = new TextEncoder();
+  const dataStream = result.fullStream.pipeThrough(
+    new TransformStream({
+      transform(chunk: any, controller) {
+        switch (chunk.type) {
+          case 'stream-start':
+            break; // skip — not handled by ai v3 transformer
+          case 'text-delta':
+            controller.enqueue(encoder.encode(formatStreamPart('text', chunk.textDelta)));
+            break;
+          case 'tool-call-streaming-start':
+            controller.enqueue(encoder.encode(formatStreamPart('tool_call_streaming_start', {
+              toolCallId: chunk.toolCallId,
+              toolName: chunk.toolName,
+            })));
+            break;
+          case 'tool-call-delta':
+            controller.enqueue(encoder.encode(formatStreamPart('tool_call_delta', {
+              toolCallId: chunk.toolCallId,
+              argsTextDelta: chunk.argsTextDelta,
+            })));
+            break;
+          case 'tool-call':
+            controller.enqueue(encoder.encode(formatStreamPart('tool_call', {
+              toolCallId: chunk.toolCallId,
+              toolName: chunk.toolName,
+              args: chunk.args,
+            })));
+            break;
+          case 'tool-result':
+            controller.enqueue(encoder.encode(formatStreamPart('tool_result', {
+              toolCallId: chunk.toolCallId,
+              result: chunk.result,
+            })));
+            break;
+          case 'finish':
+            controller.enqueue(encoder.encode(formatStreamPart('finish_message', {
+              finishReason: chunk.finishReason,
+              usage: chunk.usage,
+            })));
+            break;
+          case 'error':
+            controller.enqueue(encoder.encode(formatStreamPart('error', String(chunk.error))));
+            break;
+          // all other future chunk types: ignore gracefully
+        }
+      },
+    }),
+  );
+
+  return new Response(dataStream, {
+    headers: {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'X-Vercel-AI-Data-Stream': 'v1',
+    },
+  });
 }
