@@ -254,7 +254,7 @@ function ToolInvocationRenderer({
 }: {
   part: {
     type: 'tool-invocation'
-    toolInvocationId: string
+    toolCallId: string
     toolName: string
     state: string
     result?: ToolResult
@@ -288,10 +288,10 @@ function ToolInvocationRenderer({
   }
 
   if (result && 'type' in result && result.type === 'proposal' && confirmEndpoint) {
-    const proposalState = proposalStates[part.toolInvocationId] ?? 'pending'
+    const proposalState = proposalStates[part.toolCallId] ?? 'pending'
     return (
       <ProposalCard
-        invocationId={part.toolInvocationId}
+        invocationId={part.toolCallId}
         proposal={result as ProposalResult}
         confirmEndpoint={confirmEndpoint}
         state={proposalState}
@@ -438,14 +438,14 @@ export function CoachChat({
         {messages.map((msg) => {
           const text = getMessageText(msg)
 
-          const toolParts = msg.parts.filter(
-            (p) => p.type === 'tool-invocation'
+          const toolParts = (msg.parts || []).filter(
+            (p: any) => p.type === 'tool-invocation'
           ) as Array<{
             type: 'tool-invocation'
-            toolInvocationId: string
+            toolCallId: string
             toolName: string
-            state: string
-            result?: ToolResult
+            args: any
+            result?: any
           }>
 
           const hasContent = text || toolParts.length > 0
@@ -476,7 +476,7 @@ export function CoachChat({
                   <>
                     {toolParts.map((tp) => (
                       <ToolInvocationRenderer
-                        key={tp.toolInvocationId}
+                        key={tp.toolCallId}
                         part={tp}
                         confirmEndpoint={confirmEndpoint}
                         proposalStates={proposalStates}
