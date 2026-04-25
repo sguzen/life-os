@@ -1,7 +1,7 @@
 // Marathon Coach AI — streaming API route
 // Strict coaching for Belgrade Marathon prep (Gemini 2.5 Flash)
 
-import { google } from '@ai-sdk/google'
+import { geminiFlash, geminiPro } from '@/lib/ai/google-model'
 import { streamText, convertToModelMessages } from 'ai'
 import { createClient } from '@/lib/supabase/server'
 import { TRAINING_PLAN, getCurrentWeek, getSessionForDate } from '@/lib/marathon/plan'
@@ -148,7 +148,7 @@ ${sessionContext}`
   const modelMessages = await convertToModelMessages(messages)
 
   const result = streamText({
-    model: google('gemini-2.5-pro'),
+    model: geminiPro(),
     system: systemPrompt,
     messages: modelMessages,
     maxOutputTokens: 600,

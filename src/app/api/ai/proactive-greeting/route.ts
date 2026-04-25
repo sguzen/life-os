@@ -3,7 +3,7 @@
 // Returns check-in status + proactive flags derived from user data.
 
 import { NextResponse } from 'next/server'
-import { google } from '@ai-sdk/google'
+import { geminiFlash, geminiPro } from '@/lib/ai/google-model'
 import { generateText } from 'ai'
 import { createClient } from '@/lib/supabase/server'
 
@@ -90,7 +90,7 @@ export async function GET() {
 
     try {
       const { text } = await generateText({
-        model: google('gemini-2.5-flash'),
+        model: geminiFlash(),
         system:
           'Write a one-sentence morning greeting (max 80 chars) nudging the user to log their morning check-in. Reference today\'s planned training if relevant. Be direct, no fluff. Example: "Tempo today — log your morning vitals before heading out."',
         prompt: [sessionStr, yesterdayFlagStr].filter(Boolean).join(' '),

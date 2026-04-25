@@ -1,6 +1,6 @@
 // Nutrition AI Coach — daily advice based on today's log
 
-import { google } from '@ai-sdk/google'
+import { geminiFlash, geminiPro } from '@/lib/ai/google-model'
 import { streamText } from 'ai'
 import { createClient } from '@/lib/supabase/server'
 
@@ -151,7 +151,7 @@ ${tomorrowContext}
 Give me my daily nutrition coaching.`
 
   const result = streamText({
-    model: google('gemini-2.5-pro'),
+    model: geminiPro(),
     system: systemPrompt,
     messages: [{ role: 'user', content: userMessage }],
     maxOutputTokens: 400,

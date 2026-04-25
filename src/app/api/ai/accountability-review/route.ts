@@ -1,6 +1,6 @@
 // Accountability Review — AI post-trade analysis
 
-import { google } from '@ai-sdk/google'
+import { geminiFlash, geminiPro } from '@/lib/ai/google-model'
 import { streamText } from 'ai'
 
 export const runtime = 'nodejs'
@@ -41,7 +41,7 @@ What went wrong: ${formData.what_went_wrong || 'Nothing noted'}
 Lesson: ${formData.lesson || 'None written'}`
 
   const result = streamText({
-    model: google('gemini-2.5-pro'),
+    model: geminiPro(),
     system: systemPrompt,
     messages: [{ role: 'user', content: userMessage }],
     maxOutputTokens: 350,

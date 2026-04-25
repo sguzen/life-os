@@ -16,7 +16,6 @@ import {
   AlertCircle,
 } from 'lucide-react'
 import type { UIMessage } from 'ai'
-import { PlanDraftPreview } from '@/components/marathon/PlanDraftPreview'
 
 // ── Props ───────────────────────────────────────────────────────────────────
 
@@ -276,15 +275,30 @@ function ToolInvocationRenderer({
 
   const result = part.result
 
-  // Generative UI: render interactive plan preview for draft_running_plan results
+  // Render drafted training sessions inline
   if (
     part.toolName === 'draft_running_plan' &&
     result &&
     'draftedSessions' in result &&
     Array.isArray((result as Record<string, unknown>).draftedSessions)
   ) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return <PlanDraftPreview draftedSessions={(result as any).draftedSessions} />
+    const sessions = (result as { draftedSessions: Array<{ scheduled_date: string; workout_type: string; target_distance: number; target_pace: string }> }).draftedSessions
+    return (
+      <div className="rounded-xl border border-indigo-500/30 bg-indigo-500/5 overflow-hidden">
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-indigo-500/20 bg-indigo-500/10">
+          <span className="text-xs font-semibold text-indigo-300">Draft Training Plan ({sessions.length} sessions)</span>
+        </div>
+        <div className="divide-y divide-white/5">
+          {sessions.map((s, i) => (
+            <div key={i} className="flex items-center gap-3 px-3 py-2 text-xs">
+              <span className="text-white/40 w-24 shrink-0">{s.scheduled_date}</span>
+              <span className="text-white/80 font-medium">{s.workout_type}</span>
+              <span className="ml-auto text-white/40">{s.target_distance} km · {s.target_pace}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    )
   }
 
   if (result && 'type' in result && result.type === 'proposal' && confirmEndpoint) {

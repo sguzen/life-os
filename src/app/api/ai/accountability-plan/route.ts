@@ -1,6 +1,6 @@
 // Accountability Plan — AI review of trade plan before execution
 
-import { google } from '@ai-sdk/google'
+import { geminiFlash, geminiPro } from '@/lib/ai/google-model'
 import { streamText } from 'ai'
 
 export const runtime = 'nodejs'
@@ -54,7 +54,7 @@ Conviction Lock: ${formData.conviction_lock ? 'YES — committed to ignore exter
   }
 
   const result = streamText({
-    model: google('gemini-2.5-pro'),
+    model: geminiPro(),
     system: systemPrompt,
     messages,
     maxOutputTokens: 400,

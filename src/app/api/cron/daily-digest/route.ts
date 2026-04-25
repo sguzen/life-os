@@ -4,7 +4,7 @@
 // Secured by CRON_SECRET env var.
 
 import { NextRequest, NextResponse } from 'next/server'
-import { google } from '@ai-sdk/google'
+import { geminiFlash, geminiPro } from '@/lib/ai/google-model'
 import { generateText } from 'ai'
 import webpush from 'web-push'
 // Service role client used here to query all users' push subscriptions and training sessions
@@ -129,7 +129,7 @@ export async function GET(req: NextRequest) {
     let digestText: string
     try {
       const { text } = await generateText({
-        model: google('gemini-2.5-flash'),
+        model: geminiFlash(),
         system: DIGEST_PROMPT,
         prompt: context,
         maxTokens: 80,

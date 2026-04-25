@@ -1,6 +1,6 @@
 // Adaptation Adjustments — generates concrete week plan changes as JSON
 
-import { google } from '@ai-sdk/google'
+import { geminiFlash, geminiPro } from '@/lib/ai/google-model'
 import { generateText } from 'ai'
 import { saveProposalsAsAdjustments } from '@/lib/supabase/adapt'
 import type { AdaptationProposals } from '@/lib/types'
@@ -117,7 +117,7 @@ export async function POST(req: Request) {
     const prompt = buildPrompt({ triggerData, triageResult, remainingWeekPlan, today, sunday })
 
     const { text } = await generateText({
-      model: google('gemini-2.5-pro'),
+      model: geminiPro(),
       system: ADJUSTMENTS_SYSTEM_PROMPT,
       prompt,
       maxTokens: 2048,

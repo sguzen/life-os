@@ -2,7 +2,7 @@
 // Uses Gemini 2.0 Flash (long context) to analyse a full month of trades
 // This is a one-shot generation (no chat history), optimised for deep analysis
 
-import { google } from '@ai-sdk/google'
+import { geminiFlash, geminiPro } from '@/lib/ai/google-model'
 import { streamText } from 'ai'
 import { createClient } from '@/lib/supabase/server'
 import { TRADING_COACH_SYSTEM_PROMPT, buildTradingContext } from '@/lib/ai/coaching'
@@ -80,7 +80,7 @@ export async function POST(req: Request) {
   const system = `${TRADING_COACH_SYSTEM_PROMPT}\n\n---\n\n${contextBlock}`
 
   const result = streamText({
-    model: google('gemini-2.5-pro'),
+    model: geminiPro(),
     system,
     messages: [
       {

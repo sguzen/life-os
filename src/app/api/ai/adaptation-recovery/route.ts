@@ -1,6 +1,6 @@
 // Adaptation Recovery — AI recommendation from daily check-in
 
-import { google } from '@ai-sdk/google'
+import { geminiFlash, geminiPro } from '@/lib/ai/google-model'
 import { generateText } from 'ai'
 import { createRecoveryCheckin } from '@/lib/supabase/adapt'
 
@@ -42,7 +42,7 @@ export async function POST(req: Request) {
     ].filter(Boolean).join('\n')
 
     const { text } = await generateText({
-      model: google('gemini-2.5-pro'),
+      model: geminiPro(),
       system: RECOVERY_SYSTEM_PROMPT,
       prompt,
       maxTokens: 256,

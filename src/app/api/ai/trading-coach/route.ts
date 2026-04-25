@@ -1,7 +1,7 @@
 // P5-02: Trading Coach — streaming API route
 // Uses Gemini Pro to provide personalised ICT trading coaching
 
-import { google } from '@ai-sdk/google'
+import { geminiFlash, geminiPro } from '@/lib/ai/google-model'
 import { streamText, convertToModelMessages } from 'ai'
 import { createClient } from '@/lib/supabase/server'
 import {
@@ -47,7 +47,7 @@ export async function POST(req: Request) {
   const modelMessages = await convertToModelMessages(messages)
 
   const result = streamText({
-    model: google('gemini-2.5-pro'),
+    model: geminiPro(),
     system: systemWithContext,
     messages: modelMessages,
     maxOutputTokens: 1024,
