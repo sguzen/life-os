@@ -1,6 +1,6 @@
 // Adaptation Triage — AI severity assessment for a reported trigger
 
-import { google } from '@ai-sdk/google'
+import { geminiFlash, geminiPro } from '@/lib/ai/google-model'
 import { generateText } from 'ai'
 import { createClient } from '@/lib/supabase/server'
 import { updateAdaptationEventTriage } from '@/lib/supabase/adapt'
@@ -49,7 +49,7 @@ export async function POST(req: Request) {
     const triggerContext = buildTriggerContext(triggerData)
 
     const { text } = await generateText({
-      model: google('gemini-2.5-pro'),
+      model: geminiPro(),
       system: TRIAGE_SYSTEM_PROMPT,
       prompt: `REPORTED TRIGGER:\n${triggerContext}`,
       maxTokens: 512,

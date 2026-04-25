@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { SetupWizard } from '@/components/onboarding/SetupWizard'
 import { getHabitsWithLogs } from '@/lib/supabase/habits'
 import { getDebts, getPropPayouts } from '@/lib/supabase/finance'
 import { getActivities, getRaceTargets } from '@/lib/supabase/running'
@@ -67,6 +68,20 @@ function computeCompliance(habits: HabitWithLogs[], days: string[]): number {
 
 export default async function DashboardPage() {
   const supabase = createClient()
+
+  // Check setup gate
+  const { data: { user } } = await supabase.auth.getUser()
+  if (user) {
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select('setup_completed')
+      .eq('user_id', user.id)
+      .maybeSingle()
+
+    if (!profile || !profile.setup_completed) {
+      return <SetupWizard />
+    }
+  }
 
   // Parallel data fetching — graceful fallback on any error
   const [habitsResult, debtsResult, payoutsResult, activitiesResult, racesResult, nutritionResult, supplementResult] =

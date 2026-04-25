@@ -2,40 +2,16 @@
 // Reads all modules for context, can modify supplements and plan configs.
 // Persists every turn to coach_conversations for session continuity.
 
-import { google } from '@ai-sdk/google';
 import { streamText, tool } from 'ai';
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/server';
+import { geminiFlash } from '@/lib/ai/google-model';
 
 export const maxDuration = 60;
 
-/**
- * @ai-sdk/google v3.0.60 emits a 'stream-start' chunk that ai v3.4.9's
- * runToolsTransformation doesn't handle, crashing the stream before any
- * downstream filter can catch it. Wrap the model's doStream to strip that
- * chunk at the provider level, before the AI SDK's internal transforms run.
- */
-function withoutStreamStart(model: any): any {
-  return {
-    ...model,
-    async doStream(options: any) {
-      const response = await model.doStream(options);
-      return {
-        ...response,
-        stream: response.stream.pipeThrough(
-          new TransformStream({
-            transform(chunk: any, controller: TransformStreamDefaultController) {
-              if (chunk.type !== 'stream-start') controller.enqueue(chunk);
-            },
-          }),
-        ),
-      };
-    },
-  };
-}
 
 export async function POST(req: Request) {
-  const { messages } = await req.json();
+  const { messages, systemOverride } = await req.json();
   const supabase = createClient();
 
   const { data: { user }, error: authError } = await supabase.auth.getUser();
@@ -44,15 +20,16 @@ export async function POST(req: Request) {
   }
 
   const result = await streamText({
-    model: withoutStreamStart(google('gemini-2.5-flash')),
-    system: `You are Life OS, an elite, highly contextual life coach.
-    You have direct access to the user's database. Before giving advice on trading, running, or nutrition, ALWAYS use your tools to check their physical and psychological state.
+    model: geminiFlash(),
+    system: systemOverride ?? `You are the Life OS orchestrator. You help the user set up their life goals across Training, Nutrition, Work, Hobbies, and Morning routines. You track their data flexibly. If they lack a setup, guide them through it.
 
     Current Date and Time: ${new Date().toISOString()}
 
     Rules:
     - Never guess vitals. If you don't know, use the fetch_vitals tool.
     - Be concise, direct, and actionable.
+    - During onboarding, gather the user's name, key life domains, and specific goals, then call \`complete_onboarding\` to save their profile.
+    - For each goal, extract a \`target_metrics\` JSONB object with measurable keys (e.g. {"sessions_per_week": 3} for training, {"protein_g": 150} for nutrition).
     - If the user wants to start a fresh running plan or states their race is soon, use \`clear_running_plan\` to wipe the slate, then use \`draft_running_plan\` to propose a new schedule for them to approve.`,
     messages,
 
@@ -143,7 +120,62 @@ export async function POST(req: Request) {
         },
       }),
 
-      // Tool 5: Draft a running plan (returns sessions to client for interactive approval)
+      // Tool 5: Complete onboarding — saves user profile and goals
+      complete_onboarding: tool({
+        description: 'Called when the user has finished the setup conversation. Saves their profile summary and goals, then marks setup as complete.',
+        parameters: z.object({
+          profile_summary: z.string().describe('A 2-3 sentence summary of who the user is and what they want to achieve.'),
+          goals: z.array(
+            z.object({
+              category: z.enum(['training', 'nutrition', 'work', 'hobby', 'morning']),
+              title: z.string().describe('Short title for the goal, e.g. "Run 30 km/week"'),
+              description: z.string().optional(),
+              target_metrics: z.record(z.unknown()).describe('Key-value pairs of measurable targets, e.g. {"sessions_per_week": 3}'),
+            })
+          ).describe('List of user goals, one per life domain they mentioned.'),
+        }),
+        execute: async ({ profile_summary, goals }) => {
+          // Upsert user_profiles
+          const { error: profileError } = await supabase
+            .from('user_profiles')
+            .upsert({
+              user_id: user.id,
+              ai_context: profile_summary,
+              setup_completed: true,
+            }, { onConflict: 'user_id' });
+
+          if (profileError) return { success: false, error: profileError.message };
+
+          // Insert goals (clear old ones first so re-setup is idempotent)
+          await supabase
+            .from('user_goals')
+            .update({ is_active: false })
+            .eq('user_id', user.id);
+
+          const goalRows = goals.map((g) => ({
+            user_id: user.id,
+            category: g.category,
+            title: g.title,
+            description: g.description ?? null,
+            target_metrics: g.target_metrics,
+            is_active: true,
+          }));
+
+          const { error: goalsError } = await supabase
+            .from('user_goals')
+            .insert(goalRows);
+
+          if (goalsError) return { success: false, error: goalsError.message };
+
+          return {
+            success: true,
+            setup_completed: true,
+            message: "Your Life OS is now configured! I've saved your goals and profile. Let's get started.",
+          };
+        },
+      }),
+
+      // Tool 6: Draft a running plan (returns sessions to client for interactive approval)
       draft_running_plan: tool({
         description: "Drafts a multi-day or multi-week running plan based on the user's goals. This will display a preview to the user for approval. Do NOT hallucinate past dates.",
         parameters: z.object({

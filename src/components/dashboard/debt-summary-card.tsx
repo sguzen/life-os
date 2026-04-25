@@ -25,7 +25,7 @@ export function DebtSummaryCard({ data }: { data: DebtSummaryData }) {
       : 0
 
   return (
-    <Link href="/finance" className="block">
+    <Link href="/dashboard" className="block">
       <div className="rounded-xl border bg-card p-5 shadow-sm hover:shadow-md transition-shadow h-full">
         <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-4">
           Debt Payoff

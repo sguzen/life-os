@@ -5,7 +5,7 @@
 // Generates an AI proposal array and persists it to adapt_events.
 
 import { NextResponse } from 'next/server'
-import { google } from '@ai-sdk/google'
+import { geminiFlash, geminiPro } from '@/lib/ai/google-model'
 import { generateText } from 'ai'
 import { createServiceClient } from '@/lib/supabase/service'
 // Service client needed — this route has no user session (called server-to-server).
@@ -96,7 +96,7 @@ export async function POST(req: Request) {
 
   try {
     const { text } = await generateText({
-      model: google('gemini-2.5-flash'),
+      model: geminiFlash(),
       system: PROPOSAL_SYSTEM,
       prompt,
       maxTokens: 600,

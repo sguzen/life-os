@@ -24,7 +24,7 @@ function fmt(n: number) {
 export function PropAccountCard({ account }: PropAccountCardProps) {
   if (!account) {
     return (
-      <Link href="/trading" className="block">
+      <Link href="/dashboard" className="block">
         <div className="rounded-xl border bg-card p-5 shadow-sm hover:shadow-md transition-shadow h-full">
           <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-4">
             Prop Account
@@ -53,7 +53,7 @@ export function PropAccountCard({ account }: PropAccountCardProps) {
     : 'bg-indigo-500'
 
   return (
-    <Link href="/trading" className="block">
+    <Link href="/dashboard" className="block">
       <div className="rounded-xl border bg-card p-5 shadow-sm hover:shadow-md transition-shadow h-full">
         <div className="flex items-start justify-between mb-1">
           <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">

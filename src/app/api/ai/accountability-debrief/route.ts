@@ -1,6 +1,6 @@
 // Accountability Debrief — AI end-of-day summary and coaching
 
-import { google } from '@ai-sdk/google'
+import { geminiFlash, geminiPro } from '@/lib/ai/google-model'
 import { streamText } from 'ai'
 
 export const runtime = 'nodejs'
@@ -68,7 +68,7 @@ Self-grade: ${formData.session_grade}
 Tomorrow's focus: ${formData.tomorrows_focus}`
 
   const result = streamText({
-    model: google('gemini-2.5-pro'),
+    model: geminiPro(),
     system: systemPrompt,
     messages: [{ role: 'user', content: userMessage }],
     maxOutputTokens: 500,

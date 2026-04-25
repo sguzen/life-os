@@ -21,7 +21,7 @@ interface LatestTradeCardProps {
 export function LatestTradeCard({ trade }: LatestTradeCardProps) {
   if (!trade) {
     return (
-      <Link href="/trading" className="block">
+      <Link href="/dashboard" className="block">
         <div className="rounded-xl border bg-card p-5 shadow-sm hover:shadow-md transition-shadow h-full">
           <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-4">
             Latest Trade
@@ -51,7 +51,7 @@ export function LatestTradeCard({ trade }: LatestTradeCardProps) {
   })
 
   return (
-    <Link href="/trading" className="block">
+    <Link href="/dashboard" className="block">
       <div className="rounded-xl border bg-card p-5 shadow-sm hover:shadow-md transition-shadow h-full">
         <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-4">
           Latest Trade

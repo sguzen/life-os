@@ -5,19 +5,19 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard,
-  Activity,
-  TrendingUp,
-  Trophy,
-  Wallet,
+  Dumbbell,
+  Salad,
+  Briefcase,
+  Puzzle,
+  Sunrise,
   BookOpen,
   FolderKanban,
   LogOut,
   Menu,
   X,
-  ShieldCheck,
-  Salad,
-  RefreshCcw,
+  Activity,
   Bot,
+  RefreshCcw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
@@ -26,14 +26,14 @@ import { ThemeToggle } from "@/components/theme/theme-toggle";
 
 const navItems: Array<{ href: string; label: string; icon: React.ElementType; indent?: boolean }> = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/morning", label: "Morning", icon: Sunrise },
+  { href: "/training", label: "Training", icon: Dumbbell },
+  { href: "/nutrition", label: "Nutrition", icon: Salad },
+  { href: "/work", label: "Work", icon: Briefcase },
+  { href: "/hobby", label: "Hobby", icon: Puzzle },
+  { href: "/habits", label: "Habits", icon: Activity },
   { href: "/adapt", label: "Adapt", icon: RefreshCcw },
   { href: "/coach", label: "Coach", icon: Bot },
-  { href: "/habits", label: "Habits", icon: Activity },
-  { href: "/trading", label: "Trading", icon: TrendingUp },
-  { href: "/trading/accountability", label: "Accountability", icon: ShieldCheck, indent: true },
-  { href: "/athletics", label: "Athletics", icon: Trophy },
-  { href: "/nutrition", label: "Nutrition", icon: Salad },
-  { href: "/finance", label: "Finance", icon: Wallet },
   { href: "/books", label: "Books", icon: BookOpen },
   { href: "/projects", label: "Projects", icon: FolderKanban },
 ];
@@ -50,9 +50,7 @@ function NavLinks({ pathname, onNavigate }: { pathname: string; onNavigate?: () 
             "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
             indent && "ml-4 text-xs",
             pathname === href ||
-            (indent && pathname.startsWith(href)) ||
-            // Athletics covers /running/* and /marathon/* subroutes
-            (href === '/athletics' && (pathname.startsWith('/running') || pathname.startsWith('/marathon')))
+            (indent && pathname.startsWith(href))
               ? "bg-accent text-accent-foreground"
               : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
           )}

@@ -1,6 +1,6 @@
 // Accountability Gate — AI coaching for pre-session readiness check
 
-import { google } from '@ai-sdk/google'
+import { geminiFlash, geminiPro } from '@/lib/ai/google-model'
 import { streamText } from 'ai'
 
 export const runtime = 'nodejs'
@@ -43,7 +43,7 @@ Notes: ${formData.feeling_notes || 'None'}
 ${failReasons.length > 0 ? `Fail reasons: ${failReasons.join(', ')}` : ''}`
 
   const result = streamText({
-    model: google('gemini-2.5-pro'),
+    model: geminiPro(),
     system: systemPrompt,
     messages: [{ role: 'user', content: userMessage }],
     maxOutputTokens: 300,

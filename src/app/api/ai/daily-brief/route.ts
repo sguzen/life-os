@@ -1,6 +1,6 @@
 // Daily Brief API — generates a one-paragraph Gemini morning summary
 
-import { google } from '@ai-sdk/google'
+import { geminiFlash, geminiPro } from '@/lib/ai/google-model'
 import { generateText } from 'ai'
 import { createClient } from '@/lib/supabase/server'
 import { getHabitsWithLogs } from '@/lib/supabase/habits'
@@ -88,7 +88,7 @@ export async function GET() {
     ].join(' ')
 
     const { text } = await generateText({
-      model: google('gemini-2.5-pro'),
+      model: geminiPro(),
       system: `You are a personal AI life coach briefing a 43-year-old female athlete and prop trader at the start of her day. Write exactly one tight paragraph (3–5 sentences). Acknowledge what the data shows, highlight the single most important focus or encouragement, and connect the dots across habits/trading/running/finances. Be specific and data-driven. No markdown, no headers — plain prose only.`,
       prompt: context,
       maxTokens: 220,
