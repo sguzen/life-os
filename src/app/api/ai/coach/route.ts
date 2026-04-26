@@ -19,18 +19,33 @@ export async function POST(req: Request) {
     return new Response('Unauthorized', { status: 401 });
   }
 
+  // Fetch the 5 most recent actionable insights produced by the correlation engine
+  const { data: insights } = await supabase
+    .from('user_insights')
+    .select('insight_text, confidence')
+    .eq('user_id', user.id)
+    .eq('actionable', true)
+    .order('created_at', { ascending: false })
+    .limit(5);
+
+  const insightBlock = insights && insights.length > 0
+    ? `\n\nRecent Mathematical Insights from the Correlation Engine:\n${insights.map((ins, i) => `${i + 1}. ${ins.insight_text}${ins.confidence != null ? ` (confidence: ${(ins.confidence * 100).toFixed(0)}%)` : ''}`).join('\n')}\nRely on these facts instead of attempting to calculate statistical trends yourself.`
+    : '';
+
   const result = await streamText({
     model: geminiFlash(),
     system: systemOverride ?? `You are the Life OS orchestrator. You help the user set up their life goals across Training, Nutrition, Work, Hobbies, and Morning routines. You track their data flexibly. If they lack a setup, guide them through it.
 
-    Current Date and Time: ${new Date().toISOString()}
+    Current Date and Time: ${new Date().toISOString()}${insightBlock}
 
     Rules:
     - Never guess vitals. If you don't know, use the fetch_vitals tool.
     - Be concise, direct, and actionable.
     - During onboarding, gather the user's name, key life domains, and specific goals, then call \`complete_onboarding\` to save their profile.
     - For each goal, extract a \`target_metrics\` JSONB object with measurable keys (e.g. {"sessions_per_week": 3} for training, {"protein_g": 150} for nutrition).
-    - If the user wants to start a fresh running plan or states their race is soon, use \`clear_running_plan\` to wipe the slate, then use \`draft_running_plan\` to propose a new schedule for them to approve.`,
+    - If the user wants to start a fresh running plan or states their race is soon, use \`clear_running_plan\` to wipe the slate, then use \`draft_running_plan\` to propose a new schedule for them to approve.
+    - When the user asks for a summary, progress report, dashboard, or "how am I doing" for any category, call \`show_metrics_dashboard\` to render a visual widget. Populate dataPoints from context — do not fetch data first unless you genuinely need live values.
+    - When the user asks to see their data visually, or when you identify a trend they should track over time, call \`suggest_dashboard_widget\` to propose a chart they can pin to their dashboard.`,
     messages,
 
     // CRITICAL: maxSteps > 1 allows the LLM to call a tool, parse the JSON result, and formulate a human-readable reply.
@@ -175,7 +190,88 @@ export async function POST(req: Request) {
         },
       }),
 
-      // Tool 6: Draft a running plan (returns sessions to client for interactive approval)
+      // Tool 6: Generative UI — render a metrics dashboard widget in the chat
+      show_metrics_dashboard: tool({
+        description: 'Call this tool whenever the user asks for a summary, progress report, or visual dashboard of their metrics for a specific category (e.g., training, work, nutrition). Populate dataPoints from your knowledge of the conversation context.',
+        parameters: z.object({
+          category: z.string().describe('Life domain: training, nutrition, work, hobby, or morning'),
+          summaryText: z.string().describe('1-2 sentence narrative summary of the user\'s current status in this category.'),
+          dataPoints: z.array(
+            z.object({
+              label: z.string().describe('Short metric name, e.g. "Sessions this week"'),
+              value: z.union([z.string(), z.number()]).describe('The metric value, e.g. 4 or "4 km"'),
+            })
+          ).describe('Key metrics to display. Use 2-6 points for best layout.'),
+        }),
+        execute: async ({ category, summaryText, dataPoints }) => {
+          // Return params directly — the frontend renders the widget.
+          return { category, summaryText, dataPoints };
+        },
+      }),
+
+      // Tool 7: Suggest a dashboard widget (Generative UI — pinnable by user)
+      suggest_dashboard_widget: tool({
+        description: 'Suggest a visual dashboard widget when the user asks to see their data or when you identify a trend they should track over time. The frontend will render the chart inside the chat with a "Pin to Dashboard" button.',
+        parameters: z.object({
+          chart_type: z.enum(['line', 'bar', 'scatter']).describe('The Recharts chart type to render'),
+          metric_keys: z.array(z.string()).describe('The metric keys from daily_logs.metrics to plot, e.g. ["sleep_hours", "deep_work_hours"]'),
+          title: z.string().optional().describe('Optional human-readable title for the widget'),
+        }),
+        execute: async ({ chart_type, metric_keys, title }) => {
+          // Return the raw config — the frontend renders DynamicWidget and handles pinning.
+          return { chart_type, metric_keys, title: title ?? null };
+        },
+      }),
+
+      // Tool 9: Render an interactive chart with live daily_logs data
+      render_dashboard_widget: tool({
+        description: 'Generates an interactive visual chart for the user when they ask about their metrics, or when you want to visually prove a correlation or insight. Fetches real data from the last 14 days.',
+        parameters: z.object({
+          chartType: z.enum(['line', 'bar']).describe('line for trends over time, bar for comparing totals'),
+          metricKeys: z.array(z.string()).describe('Metric keys to plot from daily_logs.metrics, e.g. ["hrv", "sleep_hours"]'),
+          explanation: z.string().describe('A brief natural language summary of what the chart shows and why it matters'),
+        }),
+        execute: async ({ chartType, metricKeys, explanation }) => {
+          const since = new Date();
+          since.setDate(since.getDate() - 14);
+          const sinceStr = since.toISOString().split('T')[0];
+
+          const { data: logs } = await supabase
+            .from('daily_logs')
+            .select('date, metrics')
+            .eq('user_id', user.id)
+            .gte('date', sinceStr)
+            .order('date', { ascending: true });
+
+          // Reshape sparse JSONB rows into flat Recharts-compatible objects
+          const formattedData: Record<string, unknown>[] = (logs ?? []).map((log) => {
+            const metrics = (log.metrics ?? {}) as Record<string, unknown>;
+            const point: Record<string, unknown> = {
+              // Trim to MM-DD for compact x-axis labels
+              date: log.date.slice(5),
+            };
+            for (const key of metricKeys) {
+              const v = metrics[key];
+              if (typeof v === 'number') {
+                point[key] = v;
+              } else if (typeof v === 'string') {
+                const n = parseFloat(v);
+                if (isFinite(n)) point[key] = n;
+              }
+              // Absent keys are omitted — connectNulls handles gaps on LineChart
+            }
+            return point;
+          });
+
+          return {
+            config: { chartType, metricKeys },
+            data: formattedData,
+            explanation,
+          };
+        },
+      }),
+
+      // Tool 8: Draft a running plan (returns sessions to client for interactive approval)
       draft_running_plan: tool({
         description: "Drafts a multi-day or multi-week running plan based on the user's goals. This will display a preview to the user for approval. Do NOT hallucinate past dates.",
         parameters: z.object({
