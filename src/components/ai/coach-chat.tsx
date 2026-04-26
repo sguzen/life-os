@@ -14,8 +14,13 @@ import {
   CheckCircle,
   XCircle,
   AlertCircle,
+  Pin,
 } from 'lucide-react'
 import type { UIMessage } from 'ai'
+import { MetricsDashboard } from '@/components/ai/widgets/MetricsDashboard'
+import { DynamicWidget, type WidgetConfig } from '@/components/dashboard/DynamicWidget'
+import { DynamicWidget as ChatDynamicWidget, type DynamicWidgetProps } from '@/components/ai/widgets/DynamicWidget'
+import { Skeleton } from '@/components/ui/skeleton'
 
 // ── Props ───────────────────────────────────────────────────────────────────
 
@@ -243,6 +248,62 @@ function ProposalCard({
   )
 }
 
+// ── DashboardWidgetCard — renders suggested widget with pin-to-dashboard ─────
+
+function DashboardWidgetCard({ config }: { config: WidgetConfig }) {
+  const [pinState, setPinState] = useState<'idle' | 'pinning' | 'pinned' | 'error'>('idle')
+
+  const handlePin = async () => {
+    setPinState('pinning')
+    try {
+      const res = await fetch('/api/dashboard/pin-widget', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ widget_config: config }),
+      })
+      if (res.ok) {
+        setPinState('pinned')
+      } else {
+        setPinState('error')
+      }
+    } catch {
+      setPinState('error')
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      <DynamicWidget widget_config={config} data={[]} />
+      <div className="flex items-center justify-end">
+        {pinState === 'pinned' ? (
+          <span className="flex items-center gap-1.5 text-xs text-emerald-300">
+            <CheckCircle className="h-3 w-3" />
+            Pinned to dashboard
+          </span>
+        ) : pinState === 'error' ? (
+          <span className="flex items-center gap-1.5 text-xs text-red-400">
+            <AlertCircle className="h-3 w-3" />
+            Failed to pin
+          </span>
+        ) : (
+          <button
+            onClick={handlePin}
+            disabled={pinState === 'pinning'}
+            className="flex items-center gap-1.5 text-xs px-3 py-1 rounded-md bg-indigo-500/15 border border-indigo-500/25 text-indigo-300 hover:bg-indigo-500/25 transition-colors disabled:opacity-40"
+          >
+            {pinState === 'pinning' ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <Pin className="h-3 w-3" />
+            )}
+            📌 Pin to Dashboard
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── ToolInvocationPart renderer ──────────────────────────────────────────────
 
 function ToolInvocationRenderer({
@@ -263,7 +324,46 @@ function ToolInvocationRenderer({
   onProposalStateChange: (id: string, next: ProposalState) => void
 }) {
   const isPending = part.state === 'call' || part.state === 'partial-call'
+  const result = part.result
 
+  // Generative UI: metrics dashboard widget — own skeleton while generating
+  if (part.toolName === 'show_metrics_dashboard') {
+    if (isPending || !result) {
+      return <Skeleton className="h-48 w-full rounded-xl" />
+    }
+    const { category, summaryText, dataPoints } = result as {
+      category: string
+      summaryText: string
+      dataPoints: Array<{ label: string; value: string | number }>
+    }
+    return (
+      <MetricsDashboard
+        category={category}
+        summaryText={summaryText}
+        dataPoints={dataPoints}
+      />
+    )
+  }
+
+  // Generative UI: live-data chart widget from render_dashboard_widget tool
+  if (part.toolName === 'render_dashboard_widget') {
+    if (isPending || !result) {
+      return <Skeleton className="h-[300px] w-full rounded-xl animate-pulse [box-shadow:0_0_20px_rgba(99,102,241,0.15)]" />
+    }
+    const { config, data, explanation } = result as DynamicWidgetProps
+    return <ChatDynamicWidget config={config} data={data} explanation={explanation} />
+  }
+
+  // Generative UI: suggested pinnable chart widget
+  if (part.toolName === 'suggest_dashboard_widget') {
+    if (isPending || !result) {
+      return <Skeleton className="h-52 w-full rounded-xl" />
+    }
+    const config = result as WidgetConfig
+    return <DashboardWidgetCard config={config} />
+  }
+
+  // Generic pending state for all other tools
   if (isPending) {
     return (
       <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-xs text-white/40">
@@ -272,8 +372,6 @@ function ToolInvocationRenderer({
       </div>
     )
   }
-
-  const result = part.result
 
   // Render drafted training sessions inline
   if (
