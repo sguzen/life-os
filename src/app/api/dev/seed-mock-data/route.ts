@@ -24,13 +24,6 @@ export async function POST() {
 
   // Use the service client (bypasses RLS) for the actual inserts
   const serviceClient = createServiceClient()
-
-  // Quick probe — if this fails the service key is wrong or the table doesn't exist
-  const probe = await serviceClient.from('morning_logs').select('id').limit(1)
-  if (probe.error) {
-    return NextResponse.json({ debug: true, probe_error: probe.error.message }, { status: 500 })
-  }
-
   const { inserted, errors } = await seedMockData(user.id, serviceClient)
 
   if (errors.length > 0) {

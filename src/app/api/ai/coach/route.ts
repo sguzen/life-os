@@ -5,7 +5,7 @@
 import { streamText, tool } from 'ai';
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/server';
-import { geminiFlash } from '@/lib/ai/google-model';
+import { geminiFlashForTools } from '@/lib/ai/google-model';
 
 export const maxDuration = 60;
 
@@ -20,20 +20,23 @@ export async function POST(req: Request) {
   }
 
   // Fetch the 5 most recent actionable insights produced by the correlation engine
+  // Graceful fallback: user_insights table may not exist yet
   const { data: insights } = await supabase
     .from('user_insights')
     .select('insight_text, confidence')
     .eq('user_id', user.id)
     .eq('actionable', true)
     .order('created_at', { ascending: false })
-    .limit(5);
+    .limit(5)
+    .then((res) => ({ data: res.data }))
+    .catch(() => ({ data: null }));
 
   const insightBlock = insights && insights.length > 0
     ? `\n\nRecent Mathematical Insights from the Correlation Engine:\n${insights.map((ins, i) => `${i + 1}. ${ins.insight_text}${ins.confidence != null ? ` (confidence: ${(ins.confidence * 100).toFixed(0)}%)` : ''}`).join('\n')}\nRely on these facts instead of attempting to calculate statistical trends yourself.`
     : '';
 
   const result = await streamText({
-    model: geminiFlash(),
+    model: geminiFlashForTools(),
     system: systemOverride ?? `You are the Life OS orchestrator. You help the user set up their life goals across Training, Nutrition, Work, Hobbies, and Morning routines. You track their data flexibly. If they lack a setup, guide them through it.
 
     Current Date and Time: ${new Date().toISOString()}${insightBlock}
@@ -236,12 +239,16 @@ export async function POST(req: Request) {
           since.setDate(since.getDate() - 14);
           const sinceStr = since.toISOString().split('T')[0];
 
-          const { data: logs } = await supabase
+          const { data: logs, error: logsErr } = await supabase
             .from('daily_logs')
             .select('date, metrics')
             .eq('user_id', user.id)
             .gte('date', sinceStr)
             .order('date', { ascending: true });
+
+          if (logsErr) {
+            return { config: { chartType, metricKeys }, data: [], explanation: `${explanation} (No data yet — seed mock data or log some entries first.)` };
+          }
 
           // Reshape sparse JSONB rows into flat Recharts-compatible objects
           const formattedData: Record<string, unknown>[] = (logs ?? []).map((log) => {

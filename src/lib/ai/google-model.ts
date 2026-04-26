@@ -5,7 +5,11 @@
 //      → dropped via allowlist
 //   2. text-delta chunks use `delta` field; SDK expects `textDelta`
 //      → renamed
-//   3. finish.usage is nested { inputTokens: { total }, outputTokens: { total } }
+//   3. tool-call chunks use `input` field; SDK core expects `args`
+//      → renamed
+//   4. tool-call-delta chunks use `inputDelta`; SDK core expects `argsTextDelta`
+//      → renamed
+//   5. finish.usage is nested { inputTokens: { total }, outputTokens: { total } }
 //      SDK's calculateLanguageModelUsage() expects flat { promptTokens, completionTokens }
 //      → translated
 
@@ -59,6 +63,24 @@ function patchModel(model: any): any {
                 return
               }
 
+              if (chunk.type === 'tool-call') {
+                // Provider uses `input` (JSON string), SDK core expects `args`
+                controller.enqueue({
+                  ...chunk,
+                  args: chunk.args ?? chunk.input ?? '{}',
+                })
+                return
+              }
+
+              if (chunk.type === 'tool-call-delta') {
+                // Provider uses `inputDelta`, SDK core expects `argsTextDelta`
+                controller.enqueue({
+                  ...chunk,
+                  argsTextDelta: chunk.argsTextDelta ?? chunk.inputDelta ?? '',
+                })
+                return
+              }
+
               if (chunk.type === 'finish') {
                 controller.enqueue({ ...chunk, usage: normaliseFinishUsage(chunk.usage) })
                 return
@@ -75,6 +97,12 @@ function patchModel(model: any): any {
 
 export function geminiFlash() {
   return patchModel(google('gemini-2.5-flash'))
+}
+
+// Tool-calling variant: gemini-2.0-flash handles structured tool calls reliably
+// without the thinking model complications of 2.5-flash.
+export function geminiFlashForTools() {
+  return patchModel(google('gemini-2.0-flash'))
 }
 
 export function geminiPro() {
