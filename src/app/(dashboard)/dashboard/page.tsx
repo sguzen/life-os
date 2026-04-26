@@ -288,6 +288,7 @@ export default async function DashboardPage() {
 
       {/* Row 5 — AI Brief (full width, loads async) */}
       <AIDailyBrief />
+
     </div>
   )
 }

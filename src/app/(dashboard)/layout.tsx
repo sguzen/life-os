@@ -1,6 +1,7 @@
 import { Sidebar } from "@/components/layout/sidebar";
 import { GlobalCoachPanel } from "@/components/layout/GlobalCoachPanel";
 import { ProactiveBanner } from "@/components/proactive/ProactiveBanner";
+import { MockDataButton } from "@/components/dev/MockDataButton";
 
 export default function DashboardLayout({
   children,
@@ -17,6 +18,8 @@ export default function DashboardLayout({
       </main>
       {/* Persistent floating Life Coach — accessible from any page */}
       <GlobalCoachPanel />
+      {/* Dev-only seed button — fixed outside overflow:auto containers */}
+      <MockDataButton />
     </div>
   );
 }
