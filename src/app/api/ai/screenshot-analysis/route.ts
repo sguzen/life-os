@@ -2,7 +2,7 @@
 // Accepts a chart screenshot, extracts trade details, returns structured JSON with confidence scores
 
 import { google } from '@ai-sdk/google'
-import { generateObject } from 'ai'
+import { generateObject, type LanguageModelV1 } from 'ai'
 import { z } from 'zod'
 
 export const runtime = 'nodejs'
@@ -56,14 +56,9 @@ export async function POST(req: Request) {
   const mimeType = file.type as 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif'
 
   try {
-<<<<<<< HEAD
-    result = await generateText({
-      model: google('gemini-2.5-pro'),
-=======
     const { object } = await generateObject({
-      model: google('gemini-1.5-flash-latest'),
+      model: google('gemini-1.5-flash-latest') as unknown as LanguageModelV1,
       schema: ExtractionSchema,
->>>>>>> 906f914b8d2dedcfc1db1bc4d6dad0bf86bd3668
       messages: [
         {
           role: 'user',
@@ -82,47 +77,4 @@ export async function POST(req: Request) {
     const msg = err instanceof Error ? err.message : 'Gemini API error'
     return Response.json({ error: msg }, { status: 502 })
   }
-<<<<<<< HEAD
-
-  const stripped = result.text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
-  const jsonMatch = stripped.match(/\{[\s\S]*\}/)
-  const raw = jsonMatch ? jsonMatch[0] : stripped
-
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(raw)
-  } catch {
-    return Response.json({ error: 'Failed to parse AI response', raw: result.text }, { status: 422 })
-  }
-
-  function field(data: unknown, validValues?: string[]) {
-    if (!data || typeof data !== 'object') return { value: null, confidence: 0 }
-    const d = data as Record<string, unknown>
-    const confidence = Math.min(1, Math.max(0, typeof d.confidence === 'number' ? d.confidence : 0))
-    const value = d.value ?? null
-    if (value !== null && validValues && !validValues.includes(value as string)) {
-      return { value: null, confidence: 0 }
-    }
-    return { value, confidence }
-  }
-
-  const p = parsed as Record<string, unknown>
-  const sanitised = {
-    instrument: field(p.instrument, ['NQ', 'Gold', 'CL', '6E']),
-    direction: field(p.direction, ['long', 'short']),
-    entry_price: (() => {
-      const f = field(p.entry_price)
-      return { value: typeof f.value === 'number' ? f.value : null, confidence: f.confidence }
-    })(),
-    exit_price: (() => {
-      const f = field(p.exit_price)
-      return { value: typeof f.value === 'number' ? f.value : null, confidence: f.confidence }
-    })(),
-    session: field(p.session, ['london', 'new_york_am', 'new_york_pm', 'overnight', 'asia']),
-  }
-
-  return Response.json(sanitised)
 }
-=======
-}
->>>>>>> 906f914b8d2dedcfc1db1bc4d6dad0bf86bd3668
